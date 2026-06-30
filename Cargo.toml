@@ -22,3 +22,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 anyhow = "1"
 time = "0.3"
+
+[dev-dependencies]
+# test-support exposes synthetic in-memory parent + sidecar builders, so unit
+# tests run each endpoint against a known fixture (design §9).
+osmflat-extc = { path = "../osmflat-ext/osmflat-extc", features = ["test-support"] }

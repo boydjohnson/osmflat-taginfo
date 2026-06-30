@@ -10,11 +10,22 @@ use anyhow::{bail, Result};
 use std::cmp::Ordering;
 
 pub fn run(cli: &Cli, ctx: &Ctx, key: &str) -> Result<()> {
+    let rows = rows(ctx, key, cli.sortname.as_deref(), cli.sortorder)?;
+    output::emit(cli, &ctx.data_until, util::url(cli), rows)
+}
+
+/// The full, sorted values table for one key (pre-pagination), or an empty vec
+/// for an unknown key. Split from [`run`] for testing.
+pub(crate) fn rows(
+    ctx: &Ctx,
+    key: &str,
+    sortname: Option<&str>,
+    sortorder: Order,
+) -> Result<Vec<ValueRow>> {
     let tq = ctx.taginfo()?;
 
     let Some(k) = tq.key(key.as_bytes()) else {
-        // Unknown key → empty result, not an error (matches taginfo).
-        return output::emit::<ValueRow>(cli, &ctx.data_until, util::url(cli), Vec::new());
+        return Ok(Vec::new());
     };
 
     // taginfo's value `fraction` is over the *key's* total objects.
@@ -38,14 +49,14 @@ pub fn run(cli: &Cli, ctx: &Ctx, key: &str) -> Result<()> {
         })
         .collect();
 
-    sort(&mut rows, cli)?;
-    output::emit(cli, &ctx.data_until, util::url(cli), rows)
+    sort(&mut rows, sortname, sortorder)?;
+    Ok(rows)
 }
 
 /// taginfo's values table defaults to `count desc`; allowed: count, fraction,
 /// value. Ties break by value string for determinism.
-fn sort(rows: &mut [ValueRow], cli: &Cli) -> Result<()> {
-    let field = cli.sortname.as_deref().unwrap_or("count");
+fn sort(rows: &mut [ValueRow], sortname: Option<&str>, sortorder: Order) -> Result<()> {
+    let field = sortname.unwrap_or("count");
     let cmp = |a: &ValueRow, b: &ValueRow| -> Ordering {
         let primary = match field {
             // `count` and `fraction` rank identically (fraction is count scaled
@@ -61,7 +72,7 @@ fn sort(rows: &mut [ValueRow], cli: &Cli) -> Result<()> {
     }
 
     rows.sort_by(cmp);
-    if cli.sortorder == Order::Desc {
+    if sortorder == Order::Desc {
         rows.reverse();
     }
     Ok(())

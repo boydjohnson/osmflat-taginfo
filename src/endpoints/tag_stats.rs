@@ -10,11 +10,17 @@ use crate::{output, util};
 use anyhow::Result;
 
 pub fn run(cli: &Cli, ctx: &Ctx, key: &str, value: &str) -> Result<()> {
+    let rows = rows(ctx, key, value)?;
+    output::emit(cli, &ctx.data_until, util::url(cli), rows)
+}
+
+/// The four `all`/`nodes`/`ways`/`relations` rows for one tag, or an empty vec
+/// for an unknown tag. Split from [`run`] for testing.
+pub(crate) fn rows(ctx: &Ctx, key: &str, value: &str) -> Result<Vec<TagStatRow>> {
     let tq = ctx.taginfo()?;
 
     let Some(v) = tq.kv(key.as_bytes(), value.as_bytes()) else {
-        // Unknown tag → empty result, not an error (matches taginfo).
-        return output::emit::<TagStatRow>(cli, &ctx.data_until, util::url(cli), Vec::new());
+        return Ok(Vec::new());
     };
 
     let c = v.counts();
@@ -44,5 +50,5 @@ pub fn run(cli: &Cli, ctx: &Ctx, key: &str, value: &str) -> Result<()> {
     ];
 
     // tag/stats is a fixed 4-row shape; not paged or sorted.
-    output::emit(cli, &ctx.data_until, util::url(cli), rows)
+    Ok(rows)
 }

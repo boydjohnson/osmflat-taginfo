@@ -188,11 +188,10 @@ Confirmed against the live API for `keys/all`, `key/values`, `key/stats`,
   Formatted as taginfo does: `YYYY-MM-DDThh:mm:ssZ` (UTC, second precision).
 - `page`, `rp` — echo the effective pagination. When `--rp 0` (all), emit
   `rp: 0` and `page: 1`, matching taginfo's "all rows" convention.
-- `total` — total rows **before** paging. Note taginfo serializes some numeric
-  envelope values (`total`) as JSON **strings** in places (observed `"29647"`);
-  match the per-endpoint observed type exactly during implementation by snapshot
-  comparison (§9). Default assumption: `total` as a number; revisit if a golden
-  diff shows a string.
+- `total` — total rows **before** paging, a JSON **number** (confirmed against
+  the live API: raw `"total":4`, unquoted — the earlier `"29647"` was a
+  summarizer artifact). `page`/`rp`/`total` all serialize as numbers via the
+  `usize` fields on `Envelope`.
 
 ### 4.2 `keys` → `/api/4/keys/all` item
 
@@ -227,10 +226,11 @@ Source map:
 | `in_wiki` | **stub null** (§4.4) |
 | `projects` | **stub null** (§4.4) |
 
-Fraction encoding: taginfo emits these as JSON numbers in `[0,1]`. Match its
-rounding by snapshot (it appears to round to a fixed number of decimals); start
-with full `f64` and tighten to taginfo's precision once a golden file is
-captured (§9).
+Fraction encoding: taginfo emits these as JSON numbers in `[0,1]`, **rounded to
+4 decimal places** (confirmed against the live API: e.g. `0.0249`, `0.1142`,
+`0.22`, `0.005` — 4 dp with trailing zeros dropped by JSON). `open::fraction`
+applies that rounding centrally for every fraction field, so JSON serialization
+reproduces taginfo's form (`0.2200` → `0.22`).
 
 ### 4.3 `key … values` → `/api/4/key/values` item
 
@@ -425,36 +425,38 @@ shape centralized in `model.rs`.
 4. **Combinations.** ✅ `key … combinations`, `tag … combinations`, with
    `to_fraction` (over the *other* key/tag) and `from_fraction` (over *this*
    one), plus the empty-result + stderr-hint "no `--combinations` sidecar" path.
-5. **Fidelity hardening.** Golden snapshots vs. live taginfo on a known extract
-   (§9); tighten fraction rounding and any string-vs-number envelope quirks
-   (e.g. `total`); finalize the stubbed-field contract and `--help` wording.
+5. **Fidelity hardening.** ✅ Confirmed against the live API: `total`/`page`/`rp`
+   are JSON numbers (§4.1), fractions round to 4 dp (§4.2, `open::fraction`).
+   Endpoints refactored into pure `rows()` functions; 14 unit tests over a
+   synthetic fixture cover counts, fractions, per-type `values`, the null-stub
+   contract, sort, pagination, the count invariant, and JSON round-trip (§9).
 
 ---
 
 ## 9. Testing strategy
 
-- **Unit per endpoint.** Build a tiny parent + Ext sidecar in-memory via
-  osmflat-ext's `test-support` feature (the README documents
-  `cargo test -p osmflat-extc --features test-support` building synthetic parent
-  archives), run each endpoint's `run()`, assert the serde `Item`/`Envelope`
-  field-by-field against a hand-computed expectation. The brute-force oracle is
-  the same one osmflat-ext tests use.
-- **Golden JSON snapshots.** For a fixed small extract (e.g. district-of-columbia,
-  already referenced in the ext README), capture the live taginfo API response
-  for the same key/tag and diff **shape** (field names, types, presence) — not
-  the absolute counts, which differ by data vintage. This is what locks
-  "exact field names" and surfaces the string-vs-number and rounding quirks
-  flagged in §4.1/§4.2. Store goldens under `tests/golden/`.
-- **Envelope invariants (property).** For any endpoint/args:
-  `len(data) <= rp` (when `rp>0`); `total >=` `len(data)`; `page>=1`; every
-  fraction in `[0,1]`; `count_all == nodes+ways+relations`; sum over a key's
-  `values` counts `==` the key's `count_all` (the osmflat-ext invariant, surfaced
-  through JSON).
-- **Pagination/sort.** Same query at `--rp 10 --page 1..N` concatenated equals
-  the un-paged result; sort orders are stable and reversible.
-- **Stub contract.** Assert `users_all==0`, `in_wiki==false`, etc., are present
-  and type-correct, so a future real source is an additive change.
-- **Round-trip.** `--format json` output parses back into the `model.rs` structs.
+Implemented as `#[cfg(test)] mod tests` (14 tests, `cargo test`) over a synthetic
+fixture; each endpoint's pure `rows()` is the unit under test. The fixture (known
+nodes/ways/relations with fixed tags) is the oracle.
+
+- **Unit per endpoint.** ✅ Build a tiny parent + Ext sidecar in-memory via
+  osmflat-extc's `test-support` (`build_parent_archive` + `build_ext_archive`),
+  wrap in a `Ctx`, call each endpoint's `rows()`, assert the typed rows
+  field-by-field against the fixture's hand-computed counts.
+- **Envelope invariants.** ✅ `count_all == nodes+ways+relations`; sum over a
+  key's `values` counts `==` the key's `count_all` (the osmflat-ext invariant,
+  surfaced through JSON); fractions use the right per-type denominator and 4-dp
+  rounding.
+- **Pagination/sort.** ✅ `output::paginate` page slicing (incl. `rp=0` = all and
+  out-of-range = empty); default + explicit sort orders.
+- **Stub contract.** ✅ Assert `users_all`/`in_wiki`/`projects` are `null` and
+  survive the JSON round trip, so a future real source is an additive change.
+- **Round-trip.** ✅ `rows()` output serializes and re-parses; `tag/stats`
+  serialized JSON has no `values` key (the key/stats-vs-tag/stats shape split).
+- **Golden JSON snapshots (future).** Capture the live taginfo response for the
+  same key/tag and diff **shape** (field names/types/presence) — not absolute
+  counts, which differ by data vintage. Deferred (needs network); the field
+  names/types are pinned by the unit tests + the live-API confirmations in §4.
 
 ---
 
@@ -469,9 +471,12 @@ shape centralized in `model.rs`.
    live planet site's.
 4. **UTF-8 lossy.** Non-UTF-8 OSM strings are rendered with replacement chars in
    JSON.
-5. **Combinations need a `--combinations` sidecar;** otherwise those endpoints
+5. **Fractions are 4-dp.** Rounded to match taginfo (§4.2), so they are display
+   values, not full-precision ratios; recompute from the integer counts if you
+   need exact ratios.
+6. **Combinations need a `--combinations` sidecar;** otherwise those endpoints
    return empty.
-6. **Endpoint subset.** v1 covers the six §3 endpoints; taginfo's wiki, project,
+7. **Endpoint subset.** v1 covers the six §3 endpoints; taginfo's wiki, project,
    search, and relation endpoints are out of scope.
 
 ---

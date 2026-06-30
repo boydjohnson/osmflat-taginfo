@@ -65,10 +65,23 @@ per-item field order byte-for-byte (`serde_json` `preserve_order`).
 The `combinations` commands need a sidecar built with `osmflat-extc
 --combinations`; without it they return an empty result (with a stderr hint).
 
+## Tests
+
+```sh
+cargo test
+```
+
+14 unit tests build a synthetic parent + sidecar in memory (via osmflat-extc's
+`test-support`) and assert every endpoint's rows against a known fixture: counts,
+fractions, per-type distinct values, the null-stub contract, sort, pagination,
+the value-count invariant, and JSON round-trip.
+
 ## Caveats
 
 - Counts reflect the **loaded extract**, not the live planet, so fractions are
   not comparable to the website.
+- Fractions are rounded to **4 decimal places** to match taginfo; recompute from
+  the integer counts if you need exact ratios.
 - osmflat carries no wiki/JOSM/project/user data, so `users_all`, `in_wiki`,
   `projects`, and value descriptions are emitted as documented neutral stubs.
 - Strings are rendered lossy UTF-8.

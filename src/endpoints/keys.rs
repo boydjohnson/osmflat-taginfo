@@ -10,11 +10,28 @@ use osmflat_ext::taginfo::KeyView;
 use std::cmp::Ordering;
 
 pub fn run(cli: &Cli, ctx: &Ctx, args: &KeysArgs) -> Result<()> {
+    let rows = rows(
+        ctx,
+        args.search.as_deref(),
+        cli.sortname.as_deref(),
+        cli.sortorder,
+    )?;
+    output::emit(cli, &ctx.data_until, util::url(cli), rows)
+}
+
+/// The full, sorted keys table (pre-pagination). Split from [`run`] so tests can
+/// assert on the rows without constructing a [`Cli`] or printing.
+pub(crate) fn rows(
+    ctx: &Ctx,
+    search: Option<&str>,
+    sortname: Option<&str>,
+    sortorder: Order,
+) -> Result<Vec<KeyRow>> {
     let tq = ctx.taginfo()?;
 
     // The query layer returns keys sorted by string; we collect, then sort by
     // the requested field below.
-    let mut rows: Vec<KeyRow> = match &args.search {
+    let mut rows: Vec<KeyRow> = match search {
         Some(prefix) => tq
             .keys_with_prefix(prefix.as_bytes())
             .map(|k| row(ctx, &k))
@@ -22,8 +39,8 @@ pub fn run(cli: &Cli, ctx: &Ctx, args: &KeysArgs) -> Result<()> {
         None => tq.keys().map(|k| row(ctx, &k)).collect(),
     };
 
-    sort(&mut rows, cli)?;
-    output::emit(cli, &ctx.data_until, util::url(cli), rows)
+    sort(&mut rows, sortname, sortorder)?;
+    Ok(rows)
 }
 
 fn row(ctx: &Ctx, k: &KeyView) -> KeyRow {
@@ -48,8 +65,8 @@ fn row(ctx: &Ctx, k: &KeyView) -> KeyRow {
 
 /// taginfo's keys table defaults to `count_all desc`. Sorts on the chosen field
 /// with a deterministic key-string tie-break, then applies the direction.
-fn sort(rows: &mut [KeyRow], cli: &Cli) -> Result<()> {
-    let field = cli.sortname.as_deref().unwrap_or("count_all");
+fn sort(rows: &mut [KeyRow], sortname: Option<&str>, sortorder: Order) -> Result<()> {
+    let field = sortname.unwrap_or("count_all");
     let primary = |r: &KeyRow| -> u64 {
         match field {
             "count_all" => r.count_all,
@@ -74,7 +91,7 @@ fn sort(rows: &mut [KeyRow], cli: &Cli) -> Result<()> {
         Ordering::Equal => a.key.cmp(&b.key),
         ord => ord,
     });
-    if cli.sortorder == Order::Desc {
+    if sortorder == Order::Desc {
         rows.reverse();
     }
     Ok(())

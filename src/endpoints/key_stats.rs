@@ -13,11 +13,18 @@ use crate::{output, util};
 use anyhow::Result;
 
 pub fn run(cli: &Cli, ctx: &Ctx, key: &str) -> Result<()> {
+    let rows = rows(ctx, key)?;
+    output::emit(cli, &ctx.data_until, util::url(cli), rows)
+}
+
+/// The four `all`/`nodes`/`ways`/`relations` rows for one key, or an empty vec
+/// for an unknown key (taginfo returns empty, not an error). Split from [`run`]
+/// for testing.
+pub(crate) fn rows(ctx: &Ctx, key: &str) -> Result<Vec<StatRow>> {
     let tq = ctx.taginfo()?;
 
     let Some(k) = tq.key(key.as_bytes()) else {
-        // taginfo returns an empty result for an unknown key, not an error.
-        return output::emit::<StatRow>(cli, &ctx.data_until, util::url(cli), Vec::new());
+        return Ok(Vec::new());
     };
 
     let c = k.counts();
@@ -64,5 +71,5 @@ pub fn run(cli: &Cli, ctx: &Ctx, key: &str) -> Result<()> {
     ];
 
     // key/stats is a fixed 4-row shape; it is not paged or sorted.
-    output::emit(cli, &ctx.data_until, util::url(cli), rows)
+    Ok(rows)
 }

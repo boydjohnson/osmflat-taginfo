@@ -11,7 +11,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 /// Slice `rows` to the requested page. `rp == 0` means "all rows".
-fn paginate<T>(rows: Vec<T>, page: usize, rp: usize) -> Vec<T> {
+pub(crate) fn paginate<T>(rows: Vec<T>, page: usize, rp: usize) -> Vec<T> {
     if rp == 0 {
         return rows;
     }

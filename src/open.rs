@@ -62,18 +62,25 @@ impl Ctx {
         let sidecar = Ext::open(FileResourceStorage::new(ext))
             .with_context(|| format!("opening Ext sidecar {}", ext.display()))?;
 
-        let totals = Totals::of(&parent);
         let data_until = freshness::data_until(&parent, archive);
 
         let archive = ExtArchive::open(parent, sidecar)
             .map_err(|m| anyhow!("{m}"))
             .context("sidecar does not match this parent archive")?;
 
-        Ok(Ctx {
+        Ok(Self::from_archive(archive, data_until))
+    }
+
+    /// Wrap an already-opened, fingerprint-verified archive. Computes the
+    /// fraction denominators from the parent. The construction path the tests
+    /// use (with an in-memory archive); `open` is the CLI path.
+    pub(crate) fn from_archive(archive: ExtArchive, data_until: String) -> Self {
+        let totals = Totals::of(archive.parent());
+        Ctx {
             archive,
             totals,
             data_until,
-        })
+        }
     }
 
     /// The taginfo query layer, or an error if the sidecar was built without
@@ -85,11 +92,13 @@ impl Ctx {
     }
 }
 
-/// `count / total`, guarding against a zero denominator on an empty archive.
+/// `count / total`, rounded to 4 decimal places to match taginfo's fraction
+/// precision (it rounds to 4 dp; JSON then drops trailing zeros, so `0.2200`
+/// prints as `0.22`). Guards against a zero denominator on an empty archive.
 pub fn fraction(count: u64, total: u64) -> f64 {
     if total == 0 {
-        0.0
-    } else {
-        count as f64 / total as f64
+        return 0.0;
     }
+    let f = count as f64 / total as f64;
+    (f * 10_000.0).round() / 10_000.0
 }

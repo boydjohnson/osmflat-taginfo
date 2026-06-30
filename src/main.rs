@@ -13,6 +13,9 @@ mod open;
 mod output;
 mod util;
 
+#[cfg(test)]
+mod tests;
+
 use clap::Parser;
 use cli::{Cli, Command, KeyVerb, TagVerb};
 use open::Ctx;

@@ -1,0 +1,273 @@
+//! Endpoint unit tests against a synthetic in-memory archive (design §9).
+//!
+//! A small fixture with known tags is built into a parent `Osm` + `Ext` sidecar
+//! via osmflat-extc's `test-support`, wrapped in a [`Ctx`], and each endpoint's
+//! pure `rows()` function is asserted field-by-field. The fixture is the oracle.
+
+use crate::cli::Order;
+use crate::endpoints::{
+    key_combinations, key_stats, key_values, keys, tag_combinations, tag_stats,
+};
+use crate::open::{fraction, Ctx};
+use osmflat_extc::test_support::{
+    build_ext_archive, build_parent_archive, Fixture, MemberSpec, NodeSpec, RelationSpec, TagSpec,
+    WaySpec,
+};
+use osmflat_extc::BuildOptions;
+
+// --- the fixture --------------------------------------------------------------
+//
+// nodes: n0 amenity=cafe + name=A | n1 amenity=cafe | n2 amenity=bench | n3 shop=bakery
+// ways:  w0 highway=primary + name=Main | w1 highway=residential | w2 highway=primary
+// rels:  r0 type=route + name=Loop (member w0)
+//
+// Derived per-key (object) counts and distinct values:
+//   amenity  nodes=3 ways=0 rels=0  all=3  values={cafe:2, bench:1}      distinct=2
+//   name     nodes=1 ways=1 rels=1  all=3  values={A:1, Main:1, Loop:1}  distinct=3
+//   shop     nodes=1               all=1  values={bakery:1}             distinct=1
+//   highway  ways=3               all=3  values={primary:2, residential:1} distinct=2
+//   type     rels=1               all=1  values={route:1}              distinct=1
+
+fn n(lon: f64, lat: f64, tags: &[(&'static str, &'static str)]) -> NodeSpec {
+    NodeSpec {
+        lon,
+        lat,
+        tags: tags.iter().map(|(k, v)| TagSpec::new(k, v)).collect(),
+    }
+}
+
+fn w(refs: Vec<usize>, tags: &[(&'static str, &'static str)]) -> WaySpec {
+    WaySpec {
+        refs,
+        tags: tags.iter().map(|(k, v)| TagSpec::new(k, v)).collect(),
+    }
+}
+
+fn fixture() -> Fixture {
+    Fixture {
+        nodes: vec![
+            n(0.0, 0.0, &[("amenity", "cafe"), ("name", "A")]),
+            n(1.0, 1.0, &[("amenity", "cafe")]),
+            n(2.0, 2.0, &[("amenity", "bench")]),
+            n(3.0, 3.0, &[("shop", "bakery")]),
+        ],
+        ways: vec![
+            w(vec![0, 1], &[("highway", "primary"), ("name", "Main")]),
+            w(vec![1, 2], &[("highway", "residential")]),
+            w(vec![2, 3], &[("highway", "primary")]),
+        ],
+        relations: vec![RelationSpec {
+            bbox: Some((0.0, 0.0, 1.0, 1.0)),
+            members: vec![MemberSpec::Way(0)],
+            tags: vec![TagSpec::new("type", "route"), TagSpec::new("name", "Loop")],
+        }],
+    }
+}
+
+fn ctx(combinations: bool) -> Ctx {
+    let parent = build_parent_archive(&fixture()).expect("build parent");
+    let opts = BuildOptions {
+        taginfo: true,
+        combinations,
+        ..Default::default()
+    };
+    let archive = build_ext_archive(parent, &opts).expect("build sidecar");
+    Ctx::from_archive(archive, "1970-01-01T00:00:00Z".to_string())
+}
+
+fn round4(x: f64) -> f64 {
+    (x * 10_000.0).round() / 10_000.0
+}
+
+// --- keys / api/4/keys/all ----------------------------------------------------
+
+#[test]
+fn keys_counts_fractions_and_stubs() {
+    let ctx = ctx(false);
+    let rows = keys::rows(&ctx, None, None, Order::Desc).unwrap();
+
+    let highway = rows.iter().find(|r| r.key == "highway").unwrap();
+    assert_eq!(highway.count_all, 3);
+    assert_eq!(highway.count_ways, 3);
+    assert_eq!(highway.count_nodes, 0);
+    assert_eq!(highway.count_relations, 0);
+    assert_eq!(highway.values_all, 2);
+
+    // Fraction uses the *ways* denominator (not total objects) and is 4-dp.
+    assert_eq!(
+        highway.count_ways_fraction,
+        round4(3.0 / ctx.totals.ways as f64)
+    );
+    assert_eq!(
+        highway.count_all_fraction,
+        round4(3.0 / ctx.totals.objects as f64)
+    );
+
+    // Unsupported fields are null, not asserted 0/false (§4.4-bis).
+    assert_eq!(highway.users_all, None);
+    assert_eq!(highway.in_wiki, None);
+    assert_eq!(highway.projects, None);
+}
+
+#[test]
+fn keys_default_sort_is_count_all_desc() {
+    let ctx = ctx(false);
+    let rows = keys::rows(&ctx, None, None, Order::Desc).unwrap();
+    assert!(rows.windows(2).all(|w| w[0].count_all >= w[1].count_all));
+}
+
+#[test]
+fn keys_search_prefix_filters() {
+    let ctx = ctx(false);
+    // Only "name" has prefix "na"; "amenity"/"highway"/"shop"/"type" do not.
+    let rows = keys::rows(&ctx, Some("na"), None, Order::Desc).unwrap();
+    let got: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
+    assert_eq!(got, vec!["name"]);
+}
+
+// --- key/stats ---------------------------------------------------------------
+
+#[test]
+fn key_stats_rows_and_per_type_values() {
+    let ctx = ctx(false);
+    let rows = key_stats::rows(&ctx, "name").unwrap();
+    let by_type = |t: &str| rows.iter().find(|r| r.r#type == t).unwrap();
+
+    assert_eq!(by_type("all").count, 3);
+    assert_eq!(by_type("all").values, 3); // A, Main, Loop
+    assert_eq!(by_type("nodes").count, 1);
+    assert_eq!(by_type("nodes").values, 1); // A
+    assert_eq!(by_type("ways").count, 1);
+    assert_eq!(by_type("ways").values, 1); // Main
+    assert_eq!(by_type("relations").count, 1);
+    assert_eq!(by_type("relations").values, 1); // Loop
+}
+
+#[test]
+fn unknown_key_is_empty_not_error() {
+    let ctx = ctx(false);
+    assert!(key_stats::rows(&ctx, "does_not_exist").unwrap().is_empty());
+    assert!(key_values::rows(&ctx, "does_not_exist", None, Order::Desc)
+        .unwrap()
+        .is_empty());
+}
+
+// --- key/values --------------------------------------------------------------
+
+#[test]
+fn key_values_counts_fraction_invariant_and_stubs() {
+    let ctx = ctx(false);
+    let rows = key_values::rows(&ctx, "amenity", None, Order::Desc).unwrap();
+
+    // Sorted by count desc: cafe(2) before bench(1).
+    let vals: Vec<(&str, u64)> = rows.iter().map(|r| (r.value.as_str(), r.count)).collect();
+    assert_eq!(vals, vec![("cafe", 2), ("bench", 1)]);
+
+    // fraction is over the key's own total (3), 4-dp.
+    let cafe = &rows[0];
+    assert_eq!(cafe.fraction, round4(2.0 / 3.0));
+    assert_eq!(cafe.in_wiki, None);
+    assert_eq!(cafe.description, None);
+    assert_eq!(cafe.desclang, None);
+    assert_eq!(cafe.descdir, None);
+
+    // Invariant: sum of value counts == the key's count_all.
+    let sum: u64 = rows.iter().map(|r| r.count).sum();
+    assert_eq!(sum, 3);
+}
+
+#[test]
+fn key_values_sort_by_value_string() {
+    let ctx = ctx(false);
+    let rows = key_values::rows(&ctx, "amenity", Some("value"), Order::Asc).unwrap();
+    let vals: Vec<&str> = rows.iter().map(|r| r.value.as_str()).collect();
+    assert_eq!(vals, vec!["bench", "cafe"]);
+}
+
+// --- tag/stats ---------------------------------------------------------------
+
+#[test]
+fn tag_stats_counts_and_omits_values_field() {
+    let ctx = ctx(false);
+    let rows = tag_stats::rows(&ctx, "highway", "primary").unwrap();
+    let by_type = |t: &str| rows.iter().find(|r| r.r#type == t).unwrap();
+    assert_eq!(by_type("all").count, 2); // w0, w2
+    assert_eq!(by_type("ways").count, 2);
+    assert_eq!(by_type("nodes").count, 0);
+    assert_eq!(by_type("relations").count, 0);
+
+    // taginfo's tag/stats has no `values` column (unlike key/stats).
+    let json = serde_json::to_value(&rows[0]).unwrap();
+    assert!(json.get("values").is_none());
+    assert!(json.get("count_fraction").is_some());
+}
+
+// --- combinations ------------------------------------------------------------
+
+#[test]
+fn key_combinations_fractions() {
+    let ctx = ctx(true);
+    let rows = key_combinations::rows(&ctx, "highway", None, Order::Desc).unwrap();
+
+    // Only w0 (highway=primary) carries another key: name. together = 1.
+    let name = rows.iter().find(|r| r.other_key == "name").unwrap();
+    assert_eq!(name.together_count, 1);
+    assert_eq!(name.from_fraction, round4(1.0 / 3.0)); // over highway's 3
+    assert_eq!(name.to_fraction, round4(1.0 / 3.0)); // over name's 3
+}
+
+#[test]
+fn tag_combinations_fields() {
+    let ctx = ctx(true);
+    let rows = tag_combinations::rows(&ctx, "highway", "primary", None, Order::Desc).unwrap();
+    // highway=primary co-occurs with name=Main on w0.
+    let main = rows
+        .iter()
+        .find(|r| r.other_key == "name" && r.other_value == "Main")
+        .unwrap();
+    assert_eq!(main.together_count, 1);
+    assert_eq!(main.from_fraction, round4(1.0 / 2.0)); // over highway=primary's 2
+}
+
+#[test]
+fn combinations_empty_without_combinations_sidecar() {
+    let ctx = ctx(false); // taginfo-only sidecar
+    assert!(key_combinations::rows(&ctx, "highway", None, Order::Desc)
+        .unwrap()
+        .is_empty());
+    assert!(
+        tag_combinations::rows(&ctx, "highway", "primary", None, Order::Desc)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+// --- pagination, rounding, round-trip ----------------------------------------
+
+#[test]
+fn paginate_slices_pages() {
+    use crate::output::paginate;
+    assert_eq!(paginate(vec![0, 1, 2, 3, 4], 2, 2), vec![2, 3]);
+    assert_eq!(paginate(vec![0, 1, 2, 3, 4], 1, 0), vec![0, 1, 2, 3, 4]); // rp=0 → all
+    assert_eq!(paginate(vec![0, 1, 2], 99, 2), Vec::<i32>::new()); // out of range
+}
+
+#[test]
+fn fraction_rounds_to_4dp_and_guards_zero() {
+    assert_eq!(fraction(2, 3), 0.6667);
+    assert_eq!(fraction(22, 100), 0.22);
+    assert_eq!(fraction(1, 10_000_000), 0.0);
+    assert_eq!(fraction(5, 0), 0.0);
+}
+
+#[test]
+fn rows_round_trip_through_json() {
+    let ctx = ctx(false);
+    let rows = keys::rows(&ctx, None, None, Order::Desc).unwrap();
+    let json = serde_json::to_string(&rows).unwrap();
+    let back: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(back.is_array());
+    // null stubs survive the round trip as JSON null.
+    let first = &back[0];
+    assert!(first.get("in_wiki").unwrap().is_null());
+}

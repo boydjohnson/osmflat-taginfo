@@ -14,10 +14,29 @@ use osmflat_ext::taginfo::TaginfoQuery;
 use std::cmp::Ordering;
 
 pub fn run(cli: &Cli, ctx: &Ctx, key: &str) -> Result<()> {
+    let rows = rows(ctx, key, cli.sortname.as_deref(), cli.sortorder)?;
+    if rows.is_empty() {
+        eprintln!(
+            "note: no co-occurring keys for {key:?} \
+             (if unexpected, rebuild the sidecar with `osmflat-extc --combinations`)"
+        );
+    }
+    output::emit(cli, &ctx.data_until, util::url(cli), rows)
+}
+
+/// The full, sorted co-occurring-keys table (pre-pagination), or an empty vec
+/// for an unknown key / a sidecar built without `--combinations`. Split from
+/// [`run`] for testing.
+pub(crate) fn rows(
+    ctx: &Ctx,
+    key: &str,
+    sortname: Option<&str>,
+    sortorder: Order,
+) -> Result<Vec<ComboRow>> {
     let tq = ctx.taginfo()?;
 
     let Some(k) = tq.key(key.as_bytes()) else {
-        return output::emit::<ComboRow>(cli, &ctx.data_until, util::url(cli), Vec::new());
+        return Ok(Vec::new());
     };
 
     let from_total = count_all(&k.counts());
@@ -35,15 +54,8 @@ pub fn run(cli: &Cli, ctx: &Ctx, key: &str) -> Result<()> {
         })
         .collect();
 
-    if rows.is_empty() {
-        eprintln!(
-            "note: no co-occurring keys for {key:?} \
-             (if unexpected, rebuild the sidecar with `osmflat-extc --combinations`)"
-        );
-    }
-
-    sort(&mut rows, cli)?;
-    output::emit(cli, &ctx.data_until, util::url(cli), rows)
+    sort(&mut rows, sortname, sortorder)?;
+    Ok(rows)
 }
 
 fn count_all(c: &osmflat_ext::taginfo::TypeCounts) -> u64 {
@@ -57,8 +69,8 @@ fn key_total(tq: &TaginfoQuery, key: &[u8]) -> u64 {
 
 /// taginfo defaults to `together_count desc`; the sidecar already stores combos
 /// in that order. Ties break by other-key string for determinism.
-fn sort(rows: &mut [ComboRow], cli: &Cli) -> Result<()> {
-    let field = cli.sortname.as_deref().unwrap_or("together_count");
+fn sort(rows: &mut [ComboRow], sortname: Option<&str>, sortorder: Order) -> Result<()> {
+    let field = sortname.unwrap_or("together_count");
     let cmp = |a: &ComboRow, b: &ComboRow| -> Ordering {
         let primary = match field {
             "together_count" => a.together_count.cmp(&b.together_count),
@@ -79,7 +91,7 @@ fn sort(rows: &mut [ComboRow], cli: &Cli) -> Result<()> {
     }
 
     rows.sort_by(cmp);
-    if cli.sortorder == Order::Desc {
+    if sortorder == Order::Desc {
         rows.reverse();
     }
     Ok(())
