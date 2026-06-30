@@ -422,8 +422,9 @@ shape centralized in `model.rs`.
    `KEY VALUE` and the `KEY=VALUE` token.
 3. **Sorting + pagination** (§5) — landed alongside phases 1–2 (shared
    `output::emit` paginator + per-endpoint sort); `table` formatter done.
-4. **Combinations.** `key … combinations`, `tag … combinations`, with
-   `to/from_fraction` and the "no combinations sidecar" path. **(next)**
+4. **Combinations.** ✅ `key … combinations`, `tag … combinations`, with
+   `to_fraction` (over the *other* key/tag) and `from_fraction` (over *this*
+   one), plus the empty-result + stderr-hint "no `--combinations` sidecar" path.
 5. **Fidelity hardening.** Golden snapshots vs. live taginfo on a known extract
    (§9); tighten fraction rounding and any string-vs-number envelope quirks
    (e.g. `total`); finalize the stubbed-field contract and `--help` wording.

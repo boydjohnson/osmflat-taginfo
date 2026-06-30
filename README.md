@@ -38,6 +38,11 @@ osmflat-taginfo -a planet.osm.flatdata -x planet.osm.ext key highway values --rp
 # one tag's per-type counts (taginfo /api/4/tag/stats)
 osmflat-taginfo -a planet.osm.flatdata -x planet.osm.ext tag highway primary stats
 osmflat-taginfo -a planet.osm.flatdata -x planet.osm.ext tag highway=primary        # KEY=VALUE token, stats default
+
+# co-occurring keys / tags (taginfo /api/4/{key,tag}/combinations)
+# needs a sidecar built with `osmflat-extc --combinations`
+osmflat-taginfo -a planet.osm.flatdata -x planet.osm.ext key highway combinations --rp 20
+osmflat-taginfo -a planet.osm.flatdata -x planet.osm.ext tag highway primary combinations --rp 20
 ```
 
 Global flags: `--format json|pretty|table` (default `pretty`), `--page`, `--rp`
@@ -51,14 +56,14 @@ Global flags: `--format json|pretty|table` (default `pretty`), `--page`, `--rp`
 | `key <KEY> stats` | `/api/4/key/stats` |
 | `key <KEY> values` | `/api/4/key/values` |
 | `tag <KEY> <VALUE> stats` (or `tag <KEY=VALUE>`) | `/api/4/tag/stats` |
+| `key <KEY> combinations` | `/api/4/key/combinations` |
+| `tag <KEY> <VALUE> combinations` | `/api/4/tag/combinations` |
 
 Output matches taginfo's envelope (`url, data_until, page, rp, total, data`) and
 per-item field order byte-for-byte (`serde_json` `preserve_order`).
 
-## Not yet implemented
-
-`key <KEY> combinations`, `tag <KEY> <VALUE> combinations` — see the roadmap in
-the design doc §8.
+The `combinations` commands need a sidecar built with `osmflat-extc
+--combinations`; without it they return an empty result (with a stderr hint).
 
 ## Caveats
 

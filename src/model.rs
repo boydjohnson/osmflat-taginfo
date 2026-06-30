@@ -75,3 +75,28 @@ pub struct ValueRow {
     pub desclang: Option<String>,
     pub descdir: Option<String>,
 }
+
+/// One row of `/api/4/key/combinations` (design §4.5): another key that
+/// co-occurs with the queried key.
+#[derive(Serialize, Debug)]
+pub struct ComboRow {
+    pub other_key: String,
+    pub together_count: u64,
+    /// `together_count` over the *other* key's objects.
+    pub to_fraction: f64,
+    /// `together_count` over *this* key's objects.
+    pub from_fraction: f64,
+}
+
+/// One row of `/api/4/tag/combinations` (design §4.6): another `key=value` tag
+/// that co-occurs with the queried tag.
+#[derive(Serialize, Debug)]
+pub struct TagComboRow {
+    pub other_key: String,
+    pub other_value: String,
+    pub together_count: u64,
+    /// `together_count` over the *other* tag's objects.
+    pub to_fraction: f64,
+    /// `together_count` over *this* tag's objects.
+    pub from_fraction: f64,
+}

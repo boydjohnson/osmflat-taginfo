@@ -3,7 +3,9 @@
 //! and hands them to [`crate::output::emit`]. Shaped so a future `serve` mode
 //! can reuse the same functions behind the real taginfo URL routes.
 
+pub mod key_combinations;
 pub mod key_stats;
 pub mod key_values;
 pub mod keys;
+pub mod tag_combinations;
 pub mod tag_stats;

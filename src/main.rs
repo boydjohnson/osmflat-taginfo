@@ -27,11 +27,15 @@ fn main() -> anyhow::Result<()> {
             // No verb defaults to `stats`, mirroring the website's key landing.
             None | Some(KeyVerb::Stats) => endpoints::key_stats::run(&cli, &ctx, &args.key),
             Some(KeyVerb::Values) => endpoints::key_values::run(&cli, &ctx, &args.key),
+            Some(KeyVerb::Combinations) => endpoints::key_combinations::run(&cli, &ctx, &args.key),
         },
         Command::Tag(args) => {
             let (key, value) = util::split_tag(&args.key, args.value.as_deref())?;
             match args.verb {
                 None | Some(TagVerb::Stats) => endpoints::tag_stats::run(&cli, &ctx, &key, &value),
+                Some(TagVerb::Combinations) => {
+                    endpoints::tag_combinations::run(&cli, &ctx, &key, &value)
+                }
             }
         }
     }

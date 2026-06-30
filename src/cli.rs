@@ -80,6 +80,10 @@ pub enum KeyVerb {
     Stats,
     /// Distinct values of the key with counts (taginfo /api/4/key/values).
     Values,
+    /// Other keys co-occurring with this key (taginfo /api/4/key/combinations).
+    ///
+    /// Requires a sidecar built with `osmflat-extc --combinations`.
+    Combinations,
 }
 
 #[derive(clap::Args, Debug)]
@@ -96,6 +100,10 @@ pub struct TagArgs {
 pub enum TagVerb {
     /// Per-type counts for the tag (taginfo /api/4/tag/stats).
     Stats,
+    /// Other tags co-occurring with this tag (taginfo /api/4/tag/combinations).
+    ///
+    /// Requires a sidecar built with `osmflat-extc --combinations`.
+    Combinations,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
