@@ -40,9 +40,9 @@ fn row(ctx: &Ctx, k: &KeyView) -> KeyRow {
         count_relations: c.relations,
         count_relations_fraction: fraction(c.relations, ctx.totals.relations),
         values_all: k.distinct_values(),
-        users_all: 0,
-        in_wiki: false,
-        projects: 0,
+        users_all: None,
+        in_wiki: None,
+        projects: None,
     }
 }
 

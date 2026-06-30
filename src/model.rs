@@ -32,10 +32,11 @@ pub struct KeyRow {
     pub count_relations: u64,
     pub count_relations_fraction: f64,
     pub values_all: u64,
-    // --- fields osmflat has no source for: documented neutral stubs (§4.4-bis).
-    pub users_all: u64,
-    pub in_wiki: bool,
-    pub projects: u64,
+    // --- fields osmflat has no source for (§4.4-bis): all `null`, the honest
+    // "unknown" rather than an asserted `false`/`0`.
+    pub users_all: Option<u64>,
+    pub in_wiki: Option<bool>,
+    pub projects: Option<u64>,
 }
 
 /// One row of `/api/4/key/stats` (design §4.4): four rows per key, one per type

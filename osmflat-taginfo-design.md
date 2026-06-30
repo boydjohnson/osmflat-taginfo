@@ -208,9 +208,9 @@ Confirmed against the live API for `keys/all`, `key/values`, `key/stats`,
   "count_relations": 456,
   "count_relations_fraction": 0.0010,
   "values_all": 312,
-  "users_all": 0,
-  "in_wiki": false,
-  "projects": 0
+  "users_all": null,
+  "in_wiki": null,
+  "projects": null
 }
 ```
 
@@ -223,9 +223,9 @@ Source map:
 | `count_all` | sum of the three |
 | `count_*_fraction` | `count_* / total_*` (the parent denominators, §2); `count_all_fraction = count_all / total_objects` |
 | `values_all` | `KeyView::distinct_values()` |
-| `users_all` | **stub 0** (§4.4) |
-| `in_wiki` | **stub false** (§4.4) |
-| `projects` | **stub 0** (§4.4) |
+| `users_all` | **stub null** (§4.4) |
+| `in_wiki` | **stub null** (§4.4) |
+| `projects` | **stub null** (§4.4) |
 
 Fraction encoding: taginfo emits these as JSON numbers in `[0,1]`. Match its
 rounding by snapshot (it appears to round to a fixed number of decimals); start
@@ -305,19 +305,20 @@ From `TagCombinationView::{key, value, together_count}`; fractions analogous to
 ### 4.4-bis Stubbed fields — the honesty contract
 
 osmflat carries no wiki, JOSM, project, or per-user data, so these taginfo fields
-have no source. They are emitted with type-correct neutral values so the JSON
-**shape** stays drop-in, and the substitution is documented in `--help` and the
+have no source. Every one is emitted as **`null`** — the honest "unknown" rather
+than an asserted `false`/`0` — so the JSON **shape** stays drop-in while never
+claiming a fact we can't back. The substitution is documented in `--help` and the
 README:
 
 | field(s) | stub | reason |
 |---|---|---|
-| `users_all`, per-type users | `0` | osmflat has no changeset/user attribution by default |
-| `in_wiki` | `false` | no wiki crawl |
-| `projects` | `0` | no project (JOSM/iD/etc.) catalog |
+| `users_all`, per-type users | `null` | osmflat has no changeset/user attribution by default |
+| `in_wiki` | `null` | no wiki crawl |
+| `projects` | `null` | no project (JOSM/iD/etc.) catalog |
 | `description`, `desclang`, `descdir` | `null` | wiki-sourced |
 
 A `--strict-fields` flag (phase 2) could instead **omit** unsupported fields
-rather than stub them, for consumers that prefer absence over a misleading zero.
+entirely, for consumers that prefer absence over a `null`.
 
 ---
 
