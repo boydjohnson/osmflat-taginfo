@@ -1,0 +1,24 @@
+[package]
+name = "osmflat-taginfo"
+version = "0.1.0"
+edition = "2021"
+description = "A taginfo.openstreetmap.org-compatible CLI over osmflat + osmflat-ext sidecars."
+license = "MIT/Apache-2.0"
+
+[[bin]]
+name = "osmflat-taginfo"
+path = "src/main.rs"
+
+[dependencies]
+# The taginfo query layer (this CLI is a pure reader/formatter over it).
+osmflat-ext = { path = "../osmflat-ext/osmflat-ext" }
+# Pinned to the same branch osmflat-ext is designed against, so cargo unifies
+# the two on one `osmflat` version.
+osmflat = { git = "https://github.com/boydjohnson/osmflat-rs", branch = "feature/spatial-index" }
+clap = { version = "4.1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+# preserve_order keeps struct field order through serde_json::Value, so output
+# matches taginfo's field order byte-for-byte (design §4).
+serde_json = { version = "1", features = ["preserve_order"] }
+anyhow = "1"
+time = "0.3"
