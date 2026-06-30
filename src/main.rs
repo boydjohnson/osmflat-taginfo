@@ -14,7 +14,7 @@ mod output;
 mod util;
 
 use clap::Parser;
-use cli::{Cli, Command, KeyVerb};
+use cli::{Cli, Command, KeyVerb, TagVerb};
 use open::Ctx;
 
 fn main() -> anyhow::Result<()> {
@@ -26,6 +26,13 @@ fn main() -> anyhow::Result<()> {
         Command::Key(args) => match args.verb {
             // No verb defaults to `stats`, mirroring the website's key landing.
             None | Some(KeyVerb::Stats) => endpoints::key_stats::run(&cli, &ctx, &args.key),
+            Some(KeyVerb::Values) => endpoints::key_values::run(&cli, &ctx, &args.key),
         },
+        Command::Tag(args) => {
+            let (key, value) = util::split_tag(&args.key, args.value.as_deref())?;
+            match args.verb {
+                None | Some(TagVerb::Stats) => endpoints::tag_stats::run(&cli, &ctx, &key, &value),
+            }
+        }
     }
 }

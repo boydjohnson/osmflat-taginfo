@@ -55,6 +55,8 @@ pub enum Command {
     Keys(KeysArgs),
     /// Inspect a single key.
     Key(KeyArgs),
+    /// Inspect a single `key=value` tag.
+    Tag(TagArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -75,6 +77,24 @@ pub struct KeyArgs {
 #[derive(Subcommand, Debug)]
 pub enum KeyVerb {
     /// Per-type counts and distinct-value totals (taginfo /api/4/key/stats).
+    Stats,
+    /// Distinct values of the key with counts (taginfo /api/4/key/values).
+    Values,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct TagArgs {
+    /// The tag key — or the whole `KEY=VALUE` as one token (then omit VALUE).
+    pub key: String,
+    /// The tag value (omit if KEY was given as `KEY=VALUE`).
+    pub value: Option<String>,
+    #[command(subcommand)]
+    pub verb: Option<TagVerb>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TagVerb {
+    /// Per-type counts for the tag (taginfo /api/4/tag/stats).
     Stats,
 }
 

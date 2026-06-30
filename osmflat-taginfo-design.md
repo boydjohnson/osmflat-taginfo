@@ -273,10 +273,11 @@ distinct `values`):
   those with a non-empty postings list for that type — O(values), still cheap.
   The `all` row's `values` = `distinct_values()`. (Document this derivation; it
   is the one place a stat is computed in this crate rather than read O(1).)
-- `tag … stats` (`/api/4/tag/stats`) is the same row shape but the denominators
-  and the meaning of `values` change to taginfo's tag semantics — confirm
-  against a golden capture; the value-level stats endpoint is lower priority and
-  may land in phase 2 if its exact shape differs.
+- `tag … stats` (`/api/4/tag/stats`) uses the same four `all`/`nodes`/`ways`/
+  `relations` rows with `count` + `count_fraction` from `ValueView::counts()` and
+  the §2 denominators — but **drops the `values` column** (a tag has no distinct
+  values). Confirmed against the live API. Implemented as a distinct `TagStatRow`
+  so the field set differs from `key … stats` exactly as taginfo's does.
 
 ### 4.5 `key … combinations` → `/api/4/key/combinations` item
 
@@ -412,15 +413,17 @@ shape centralized in `model.rs`.
 
 ## 8. Phased roadmap
 
-1. **Skeleton + read path.** `open.rs` (open parent+ext, verify fingerprint,
-   compute denominators), `cli.rs` global args, `fmt.rs` (json/pretty), and the
-   two simplest endpoints: `keys` and `key … stats`. Proves the §2 wiring and
-   the envelope. **(the MVP)**
-2. **Values + tag stats.** `key … values`, `tag … stats`, including per-type
-   `values` distinct counts (§4.4). Add `--search` prefix on `keys`.
-3. **Sorting + pagination** (§5) wired across all endpoints; `table` formatter.
+1. **Skeleton + read path.** ✅ `open.rs` (open parent+ext, verify fingerprint,
+   compute denominators), `cli.rs` global args, output (json/pretty/table), and
+   `keys` + `key … stats`. Proves the §2 wiring and the envelope. **(the MVP)**
+2. **Values + tag stats.** ✅ `key … values`, `tag … stats` (per-type `values`
+   distinct counts in key/stats §4.4; no `values` column in tag/stats), plus the
+   `--search` prefix on `keys` and per-endpoint sort/paginate. `tag` accepts both
+   `KEY VALUE` and the `KEY=VALUE` token.
+3. **Sorting + pagination** (§5) — landed alongside phases 1–2 (shared
+   `output::emit` paginator + per-endpoint sort); `table` formatter done.
 4. **Combinations.** `key … combinations`, `tag … combinations`, with
-   `to/from_fraction` and the "no combinations sidecar" path.
+   `to/from_fraction` and the "no combinations sidecar" path. **(next)**
 5. **Fidelity hardening.** Golden snapshots vs. live taginfo on a known extract
    (§9); tighten fraction rounding and any string-vs-number envelope quirks
    (e.g. `total`); finalize the stubbed-field contract and `--help` wording.

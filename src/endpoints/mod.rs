@@ -4,4 +4,6 @@
 //! can reuse the same functions behind the real taginfo URL routes.
 
 pub mod key_stats;
+pub mod key_values;
 pub mod keys;
+pub mod tag_stats;

@@ -50,3 +50,28 @@ pub struct StatRow {
     /// Distinct values for this object type.
     pub values: u64,
 }
+
+/// One row of `/api/4/tag/stats` (design §4.4): four rows per tag, one per type
+/// plus `all`. Unlike [`StatRow`], a tag has no distinct values, so taginfo
+/// omits the `values` column here.
+#[derive(Serialize, Debug)]
+pub struct TagStatRow {
+    /// `all` | `nodes` | `ways` | `relations`.
+    pub r#type: &'static str,
+    pub count: u64,
+    pub count_fraction: f64,
+}
+
+/// One row of `/api/4/key/values` (design §4.3): a distinct value of a key with
+/// its count and the fraction of the key's objects that carry it.
+#[derive(Serialize, Debug)]
+pub struct ValueRow {
+    pub value: String,
+    pub count: u64,
+    pub fraction: f64,
+    // --- wiki-sourced, no osmflat source: `null` per the §4.4-bis contract.
+    pub in_wiki: Option<bool>,
+    pub description: Option<String>,
+    pub desclang: Option<String>,
+    pub descdir: Option<String>,
+}
