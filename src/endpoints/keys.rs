@@ -39,12 +39,19 @@ pub(crate) fn rows(
         None => tq.keys().map(|k| row(ctx, &k)).collect(),
     };
 
+    // Under a bbox clip, a key with no in-scope occurrences is noise: drop it
+    // instead of listing every archive-wide key at `count_all: 0`.
+    if ctx.bbox.is_some() {
+        rows.retain(|r| r.count_all > 0);
+    }
+
     sort(&mut rows, sortname, sortorder)?;
     Ok(rows)
 }
 
 fn row(ctx: &Ctx, k: &KeyView) -> KeyRow {
-    let c = k.counts();
+    let summary = crate::bbox::key_summary(k, ctx.bbox);
+    let c = summary.counts;
     let count_all = c.nodes + c.ways + c.relations;
     KeyRow {
         key: util::lossy(k.key()),
@@ -56,7 +63,7 @@ fn row(ctx: &Ctx, k: &KeyView) -> KeyRow {
         count_ways_fraction: fraction(c.ways, ctx.totals.ways),
         count_relations: c.relations,
         count_relations_fraction: fraction(c.relations, ctx.totals.relations),
-        values_all: k.distinct_values(),
+        values_all: summary.distinct_values,
         users_all: None,
         in_wiki: None,
         projects: None,

@@ -9,6 +9,7 @@ use crate::endpoints::{
     key_combinations, key_stats, key_values, keys, tag_combinations, tag_stats,
 };
 use crate::open::{fraction, Ctx};
+use osmflat_ext::query::Bbox;
 use osmflat_extc::test_support::{
     build_ext_archive, build_parent_archive, Fixture, MemberSpec, NodeSpec, RelationSpec, TagSpec,
     WaySpec,
@@ -73,6 +74,18 @@ fn ctx(combinations: bool) -> Ctx {
     };
     let archive = build_ext_archive(parent, &opts).expect("build sidecar");
     Ctx::from_archive(archive, "1970-01-01T00:00:00Z".to_string())
+}
+
+/// Same fixture, clipped to `bbox`.
+fn ctx_bbox(combinations: bool, bbox: Bbox) -> Ctx {
+    let parent = build_parent_archive(&fixture()).expect("build parent");
+    let opts = BuildOptions {
+        taginfo: true,
+        combinations,
+        ..Default::default()
+    };
+    let archive = build_ext_archive(parent, &opts).expect("build sidecar");
+    Ctx::from_archive_with_bbox(archive, "1970-01-01T00:00:00Z".to_string(), Some(bbox))
 }
 
 fn round4(x: f64) -> f64 {
@@ -240,6 +253,99 @@ fn combinations_empty_without_combinations_sidecar() {
             .unwrap()
             .is_empty()
     );
+}
+
+// --- --bbox --------------------------------------------------------------
+
+#[test]
+fn bbox_clips_totals_and_counts() {
+    // n3 (shop=bakery, 3,3) and w2 (highway=primary, refs [2,3] -> bbox
+    // (2,2)-(3,3)) overlap; everything else (n0/n1/n2, w0, w1, r0) sits
+    // strictly outside this box.
+    let bbox = Bbox {
+        min_lon: 2.5,
+        min_lat: 2.5,
+        max_lon: 3.5,
+        max_lat: 3.5,
+    };
+    let ctx = ctx_bbox(false, bbox);
+
+    assert_eq!(ctx.totals.nodes, 1);
+    assert_eq!(ctx.totals.ways, 1);
+    assert_eq!(ctx.totals.relations, 0);
+
+    let rows = keys::rows(&ctx, None, None, Order::Desc).unwrap();
+    let mut keys_seen: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
+    keys_seen.sort_unstable();
+    // amenity/name/type have no in-bbox occurrences and are dropped entirely.
+    assert_eq!(keys_seen, vec!["highway", "shop"]);
+
+    let shop = rows.iter().find(|r| r.key == "shop").unwrap();
+    assert_eq!(shop.count_all, 1);
+    assert_eq!(shop.count_nodes, 1);
+    assert_eq!(shop.values_all, 1);
+
+    let highway = rows.iter().find(|r| r.key == "highway").unwrap();
+    assert_eq!(highway.count_all, 1);
+    assert_eq!(highway.count_ways, 1);
+    assert_eq!(highway.values_all, 1); // only "primary" is in scope, not "residential"
+
+    let values = key_values::rows(&ctx, "highway", None, Order::Desc).unwrap();
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].value, "primary");
+    assert_eq!(values[0].count, 1);
+
+    let stats = tag_stats::rows(&ctx, "highway", "primary").unwrap();
+    assert_eq!(stats.iter().find(|r| r.r#type == "all").unwrap().count, 1);
+}
+
+#[test]
+fn bbox_recomputes_combinations() {
+    // n3 (shop=bakery) and w2 (highway=primary) are the only entities in
+    // scope, and neither carries a second key, so every together_count
+    // collapses to 0 and both combinations tables come back empty — unlike
+    // the archive-wide `together_count: 1` for highway~name / highway=primary~name=Main.
+    let tight = ctx_bbox(
+        true,
+        Bbox {
+            min_lon: 2.5,
+            min_lat: 2.5,
+            max_lon: 3.5,
+            max_lat: 3.5,
+        },
+    );
+    assert!(key_combinations::rows(&tight, "highway", None, Order::Desc)
+        .unwrap()
+        .is_empty());
+    assert!(
+        tag_combinations::rows(&tight, "highway", "primary", None, Order::Desc)
+            .unwrap()
+            .is_empty()
+    );
+
+    // A box covering the whole fixture reproduces the archive-wide
+    // together_count exactly — a sanity check on the recompute formula.
+    let whole = ctx_bbox(
+        true,
+        Bbox {
+            min_lon: -1.0,
+            min_lat: -1.0,
+            max_lon: 4.0,
+            max_lat: 4.0,
+        },
+    );
+    let rows = key_combinations::rows(&whole, "highway", None, Order::Desc).unwrap();
+    let name = rows.iter().find(|r| r.other_key == "name").unwrap();
+    assert_eq!(name.together_count, 1);
+    assert_eq!(name.from_fraction, round4(1.0 / 3.0));
+    assert_eq!(name.to_fraction, round4(1.0 / 3.0));
+
+    let tag_rows = tag_combinations::rows(&whole, "highway", "primary", None, Order::Desc).unwrap();
+    let main = tag_rows
+        .iter()
+        .find(|r| r.other_key == "name" && r.other_value == "Main")
+        .unwrap();
+    assert_eq!(main.together_count, 1);
 }
 
 // --- pagination, rounding, round-trip ----------------------------------------

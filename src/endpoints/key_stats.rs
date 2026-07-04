@@ -27,21 +27,27 @@ pub(crate) fn rows(ctx: &Ctx, key: &str) -> Result<Vec<StatRow>> {
         return Ok(Vec::new());
     };
 
-    let c = k.counts();
-    let count_all = c.nodes + c.ways + c.relations;
-
-    // Per-type distinct-value counts: one value contributes to a type's tally
-    // when it has at least one posting of that type.
+    // Per-type counts and distinct-value tallies, both derived from the same
+    // per-value pass so they agree under a `--bbox` clip. A value contributes
+    // to a type's distinct-value tally when it has at least one occurrence
+    // (posting, or bbox∩posting) of that type.
     let (mut v_nodes, mut v_ways, mut v_rels) = (0u64, 0u64, 0u64);
     let mut v_all = 0u64;
+    let mut c = osmflat_ext::taginfo::TypeCounts::default();
     for v in k.values() {
-        v_all += 1;
-        let vc = v.counts();
+        let vc = crate::bbox::value_counts(&v, ctx.bbox);
+        c.nodes += vc.nodes;
+        c.ways += vc.ways;
+        c.relations += vc.relations;
+        if vc.nodes + vc.ways + vc.relations > 0 {
+            v_all += 1;
+        }
         v_nodes += (vc.nodes > 0) as u64;
         v_ways += (vc.ways > 0) as u64;
         v_rels += (vc.relations > 0) as u64;
     }
-    debug_assert_eq!(v_all, k.distinct_values());
+    let count_all = c.nodes + c.ways + c.relations;
+    debug_assert!(ctx.bbox.is_some() || v_all == k.distinct_values());
 
     let rows = vec![
         StatRow {

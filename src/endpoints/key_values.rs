@@ -28,14 +28,15 @@ pub(crate) fn rows(
         return Ok(Vec::new());
     };
 
-    // taginfo's value `fraction` is over the *key's* total objects.
-    let c = k.counts();
+    // taginfo's value `fraction` is over the *key's* total objects (bbox-clipped
+    // when `--bbox` is given).
+    let c = crate::bbox::key_summary(&k, ctx.bbox).counts;
     let key_count_all = c.nodes + c.ways + c.relations;
 
     let mut rows: Vec<ValueRow> = k
         .values()
         .map(|v| {
-            let vc = v.counts();
+            let vc = crate::bbox::value_counts(&v, ctx.bbox);
             let count = vc.nodes + vc.ways + vc.relations;
             ValueRow {
                 value: util::lossy(v.value()),
@@ -48,6 +49,11 @@ pub(crate) fn rows(
             }
         })
         .collect();
+
+    // Under a bbox clip, a value with no in-scope occurrences is noise.
+    if ctx.bbox.is_some() {
+        rows.retain(|r| r.count > 0);
+    }
 
     sort(&mut rows, sortname, sortorder)?;
     Ok(rows)

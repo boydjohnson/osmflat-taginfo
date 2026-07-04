@@ -4,6 +4,11 @@
 //! `from_fraction` is `together_count` over *this* key's objects; `to_fraction`
 //! is over the *other* key's objects (a second key lookup per row). Empty when
 //! the sidecar was built without `osmflat-extc --combinations`.
+//!
+//! Under `--bbox`, `together_count` has no stored aggregate, so it's
+//! recomputed by intersecting the two keys' bbox-clipped object-index sets
+//! (see [`crate::bbox::key_indices_in_bbox`]) — `O(combos × values-per-key)`,
+//! against a single key rather than the whole archive.
 
 use crate::cli::{Cli, Order};
 use crate::model::ComboRow;
@@ -17,8 +22,13 @@ pub fn run(cli: &Cli, ctx: &Ctx, key: &str) -> Result<()> {
     let rows = rows(ctx, key, cli.sortname.as_deref(), cli.sortorder)?;
     if rows.is_empty() {
         eprintln!(
-            "note: no co-occurring keys for {key:?} \
-             (if unexpected, rebuild the sidecar with `osmflat-extc --combinations`)"
+            "note: no co-occurring keys for {key:?} in scope \
+             (if unexpected, rebuild the sidecar with `osmflat-extc --combinations`{})",
+            if ctx.bbox.is_some() {
+                ", or none co-occur within --bbox"
+            } else {
+                ""
+            }
         );
     }
     output::emit(cli, &ctx.data_until, util::url(cli), rows)
@@ -39,20 +49,39 @@ pub(crate) fn rows(
         return Ok(Vec::new());
     };
 
-    let from_total = count_all(&k.counts());
-
-    let mut rows: Vec<ComboRow> = k
-        .combinations()
-        .map(|c| {
-            let together = c.together_count();
-            ComboRow {
-                other_key: util::lossy(c.key()),
-                together_count: together,
-                to_fraction: fraction(together, key_total(&tq, c.key())),
-                from_fraction: fraction(together, from_total),
-            }
-        })
-        .collect();
+    let mut rows: Vec<ComboRow> = match ctx.bbox {
+        None => {
+            let from_total = count_all(&k.counts());
+            k.combinations()
+                .map(|c| {
+                    let together = c.together_count();
+                    ComboRow {
+                        other_key: util::lossy(c.key()),
+                        together_count: together,
+                        to_fraction: fraction(together, key_total(&tq, c.key())),
+                        from_fraction: fraction(together, from_total),
+                    }
+                })
+                .collect()
+        }
+        Some(bbox) => {
+            let this_idx = crate::bbox::key_indices_in_bbox(&k, bbox);
+            let from_total = this_idx.total();
+            k.combinations()
+                .filter_map(|c| {
+                    let other = tq.key(c.key())?;
+                    let other_idx = crate::bbox::key_indices_in_bbox(&other, bbox);
+                    let together = crate::bbox::key_together_count_in_bbox(&this_idx, &other_idx);
+                    (together > 0).then(|| ComboRow {
+                        other_key: util::lossy(c.key()),
+                        together_count: together,
+                        to_fraction: fraction(together, other_idx.total()),
+                        from_fraction: fraction(together, from_total),
+                    })
+                })
+                .collect()
+        }
+    };
 
     sort(&mut rows, sortname, sortorder)?;
     Ok(rows)

@@ -5,6 +5,7 @@
 //! queries through `osmflat_ext::taginfo`, and prints taginfo v4-shaped JSON.
 //! See `osmflat-taginfo-design.md`.
 
+mod bbox;
 mod cli;
 mod endpoints;
 mod freshness;
@@ -22,7 +23,8 @@ use open::Ctx;
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let ctx = Ctx::open(&cli.archive, &cli.ext)?;
+    let bbox = cli::parse_bbox(&cli)?;
+    let ctx = Ctx::open(&cli.archive, &cli.ext, bbox)?;
 
     match &cli.command {
         Command::Keys(args) => endpoints::keys::run(&cli, &ctx, args),

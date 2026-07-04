@@ -4,6 +4,7 @@
 use crate::freshness;
 use anyhow::{anyhow, Context as _};
 use osmflat::{FileResourceStorage, Osm};
+use osmflat_ext::query::{self, Bbox};
 use osmflat_ext::taginfo::TaginfoQuery;
 use osmflat_ext::{Ext, ExtArchive};
 use std::path::Path;
@@ -11,6 +12,10 @@ use std::path::Path;
 /// Parent vector lengths used as fraction denominators. These are
 /// sentinel-trimmed counts as the reader sees them — the same values the ext
 /// fingerprint records — so they line up with how the sidecar counted objects.
+///
+/// When a `--bbox` is active these are the *bbox-filtered* totals (entities
+/// overlapping the box), so fractions stay "share of what's in view" rather
+/// than "share of the whole archive".
 #[derive(Copy, Clone, Debug)]
 pub struct Totals {
     pub nodes: u64,
@@ -31,6 +36,18 @@ impl Totals {
             objects: nodes + ways + relations,
         }
     }
+
+    fn of_bbox(parent: &Osm, bbox: Bbox) -> Self {
+        let nodes = query::node_indices_in_bbox(parent, bbox).len() as u64;
+        let ways = query::way_indices_in_bbox(parent, bbox).len() as u64;
+        let relations = query::relation_indices_in_bbox(parent, bbox).len() as u64;
+        Totals {
+            nodes,
+            ways,
+            relations,
+            objects: nodes + ways + relations,
+        }
+    }
 }
 
 /// Everything an endpoint needs: the opened+verified archive, the denominators,
@@ -39,6 +56,10 @@ pub struct Ctx {
     archive: ExtArchive,
     pub totals: Totals,
     pub data_until: String,
+    /// The `--bbox` clip, if any. Endpoints use this to switch from the
+    /// archive-wide `O(1)` counts to per-value bbox-filtered counts (see
+    /// [`crate::bbox`]).
+    pub bbox: Option<Bbox>,
 }
 
 impl Ctx {
@@ -46,6 +67,7 @@ impl Ctx {
     pub fn open(
         archive: &Option<std::path::PathBuf>,
         ext: &Option<std::path::PathBuf>,
+        bbox: Option<Bbox>,
     ) -> anyhow::Result<Self> {
         let archive = archive
             .as_deref()
@@ -53,10 +75,10 @@ impl Ctx {
         let ext = ext
             .as_deref()
             .ok_or_else(|| anyhow!("missing --ext (Ext sidecar directory)"))?;
-        Self::open_paths(archive, ext)
+        Self::open_paths(archive, ext, bbox)
     }
 
-    fn open_paths(archive: &Path, ext: &Path) -> anyhow::Result<Self> {
+    fn open_paths(archive: &Path, ext: &Path, bbox: Option<Bbox>) -> anyhow::Result<Self> {
         let parent = Osm::open(FileResourceStorage::new(archive))
             .with_context(|| format!("opening parent archive {}", archive.display()))?;
         let sidecar = Ext::open(FileResourceStorage::new(ext))
@@ -68,18 +90,34 @@ impl Ctx {
             .map_err(|m| anyhow!("{m}"))
             .context("sidecar does not match this parent archive")?;
 
-        Ok(Self::from_archive(archive, data_until))
+        Ok(Self::from_archive_with_bbox(archive, data_until, bbox))
+    }
+
+    /// Wrap an already-opened, fingerprint-verified archive with no bbox clip.
+    /// Kept for the existing (pre-bbox) test call sites.
+    #[cfg(test)]
+    pub(crate) fn from_archive(archive: ExtArchive, data_until: String) -> Self {
+        Self::from_archive_with_bbox(archive, data_until, None)
     }
 
     /// Wrap an already-opened, fingerprint-verified archive. Computes the
-    /// fraction denominators from the parent. The construction path the tests
-    /// use (with an in-memory archive); `open` is the CLI path.
-    pub(crate) fn from_archive(archive: ExtArchive, data_until: String) -> Self {
-        let totals = Totals::of(archive.parent());
+    /// fraction denominators from the parent, bbox-filtered if `bbox` is
+    /// given. The construction path the tests use (with an in-memory
+    /// archive); `open` is the CLI path.
+    pub(crate) fn from_archive_with_bbox(
+        archive: ExtArchive,
+        data_until: String,
+        bbox: Option<Bbox>,
+    ) -> Self {
+        let totals = match bbox {
+            Some(bbox) => Totals::of_bbox(archive.parent(), bbox),
+            None => Totals::of(archive.parent()),
+        };
         Ctx {
             archive,
             totals,
             data_until,
+            bbox,
         }
     }
 

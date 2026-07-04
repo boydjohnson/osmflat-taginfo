@@ -5,6 +5,10 @@
 //! `from_fraction` is `together_count` over *this* tag's objects; `to_fraction`
 //! is over the *other* tag's objects (a second `(key,value)` lookup per row).
 //! Empty when the sidecar was built without `osmflat-extc --combinations`.
+//!
+//! Under `--bbox`, `together_count` has no stored aggregate, so it's
+//! recomputed by intersecting the two tags' bbox-clipped postings (see
+//! [`crate::bbox::tag_together_count_in_bbox`]) — one bbox query pair per row.
 
 use crate::cli::{Cli, Order};
 use crate::model::TagComboRow;
@@ -18,8 +22,13 @@ pub fn run(cli: &Cli, ctx: &Ctx, key: &str, value: &str) -> Result<()> {
     let rows = rows(ctx, key, value, cli.sortname.as_deref(), cli.sortorder)?;
     if rows.is_empty() {
         eprintln!(
-            "note: no co-occurring tags for {key}={value} \
-             (if unexpected, rebuild the sidecar with `osmflat-extc --combinations`)"
+            "note: no co-occurring tags for {key}={value} in scope \
+             (if unexpected, rebuild the sidecar with `osmflat-extc --combinations`{})",
+            if ctx.bbox.is_some() {
+                ", or none co-occur within --bbox"
+            } else {
+                ""
+            }
         );
     }
     output::emit(cli, &ctx.data_until, util::url(cli), rows)
@@ -41,21 +50,42 @@ pub(crate) fn rows(
         return Ok(Vec::new());
     };
 
-    let from_total = count_all(&v.counts());
-
-    let mut rows: Vec<TagComboRow> = v
-        .combinations()
-        .map(|c| {
-            let together = c.together_count();
-            TagComboRow {
-                other_key: util::lossy(c.key()),
-                other_value: util::lossy(c.value()),
-                together_count: together,
-                to_fraction: fraction(together, tag_total(&tq, c.key(), c.value())),
-                from_fraction: fraction(together, from_total),
-            }
-        })
-        .collect();
+    let mut rows: Vec<TagComboRow> = match ctx.bbox {
+        None => {
+            let from_total = count_all(&v.counts());
+            v.combinations()
+                .map(|c| {
+                    let together = c.together_count();
+                    TagComboRow {
+                        other_key: util::lossy(c.key()),
+                        other_value: util::lossy(c.value()),
+                        together_count: together,
+                        to_fraction: fraction(together, tag_total(&tq, c.key(), c.value())),
+                        from_fraction: fraction(together, from_total),
+                    }
+                })
+                .collect()
+        }
+        Some(bbox) => {
+            let from_c = crate::bbox::value_counts(&v, Some(bbox));
+            let from_total = from_c.nodes + from_c.ways + from_c.relations;
+            v.combinations()
+                .filter_map(|c| {
+                    let other = tq.kv(c.key(), c.value())?;
+                    let together = crate::bbox::tag_together_count_in_bbox(&v, &other, bbox);
+                    let oc = crate::bbox::value_counts(&other, Some(bbox));
+                    let to_total = oc.nodes + oc.ways + oc.relations;
+                    (together > 0).then(|| TagComboRow {
+                        other_key: util::lossy(c.key()),
+                        other_value: util::lossy(c.value()),
+                        together_count: together,
+                        to_fraction: fraction(together, to_total),
+                        from_fraction: fraction(together, from_total),
+                    })
+                })
+                .collect()
+        }
+    };
 
     sort(&mut rows, sortname, sortorder)?;
     Ok(rows)
