@@ -1,10 +1,11 @@
 //! Open the parent archive + Ext sidecar, verify the fingerprint, and gather the
 //! denominators every fraction needs (design §2).
 
+use crate::bbox::BboxClip;
 use crate::freshness;
 use anyhow::{anyhow, Context as _};
 use osmflat::{FileResourceStorage, Osm};
-use osmflat_ext::query::{self, Bbox};
+use osmflat_ext::query::Bbox;
 use osmflat_ext::taginfo::TaginfoQuery;
 use osmflat_ext::{Ext, ExtArchive};
 use std::path::Path;
@@ -37,10 +38,10 @@ impl Totals {
         }
     }
 
-    fn of_bbox(parent: &Osm, bbox: Bbox) -> Self {
-        let nodes = query::node_indices_in_bbox(parent, bbox).len() as u64;
-        let ways = query::way_indices_in_bbox(parent, bbox).len() as u64;
-        let relations = query::relation_indices_in_bbox(parent, bbox).len() as u64;
+    fn of_clip(clip: &BboxClip) -> Self {
+        let nodes = clip.totals.nodes;
+        let ways = clip.totals.ways;
+        let relations = clip.totals.relations;
         Totals {
             nodes,
             ways,
@@ -56,10 +57,12 @@ pub struct Ctx {
     archive: ExtArchive,
     pub totals: Totals,
     pub data_until: String,
-    /// The `--bbox` clip, if any. Endpoints use this to switch from the
-    /// archive-wide `O(1)` counts to per-value bbox-filtered counts (see
-    /// [`crate::bbox`]).
+    /// The raw `--bbox` argument, if any. Endpoints use this as a cheap
+    /// "bbox mode is active" signal.
     pub bbox: Option<Bbox>,
+    /// Precomputed spatial ranges for [`Self::bbox`], reused across every
+    /// value/key merge-join in a request.
+    pub bbox_clip: Option<BboxClip>,
 }
 
 impl Ctx {
@@ -109,8 +112,9 @@ impl Ctx {
         data_until: String,
         bbox: Option<Bbox>,
     ) -> Self {
-        let totals = match bbox {
-            Some(bbox) => Totals::of_bbox(archive.parent(), bbox),
+        let bbox_clip = bbox.map(|bbox| BboxClip::new(archive.parent(), bbox));
+        let totals = match &bbox_clip {
+            Some(clip) => Totals::of_clip(clip),
             None => Totals::of(archive.parent()),
         };
         Ctx {
@@ -118,6 +122,7 @@ impl Ctx {
             totals,
             data_until,
             bbox,
+            bbox_clip,
         }
     }
 

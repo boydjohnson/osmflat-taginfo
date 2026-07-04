@@ -50,7 +50,7 @@ pub(crate) fn rows(
 }
 
 fn row(ctx: &Ctx, k: &KeyView) -> KeyRow {
-    let summary = crate::bbox::key_summary(k, ctx.bbox);
+    let summary = crate::bbox::key_summary(k, ctx.bbox_clip.as_ref());
     let c = summary.counts;
     let count_all = c.nodes + c.ways + c.relations;
     KeyRow {

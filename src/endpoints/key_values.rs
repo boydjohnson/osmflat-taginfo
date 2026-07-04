@@ -28,25 +28,30 @@ pub(crate) fn rows(
         return Ok(Vec::new());
     };
 
-    // taginfo's value `fraction` is over the *key's* total objects (bbox-clipped
-    // when `--bbox` is given).
-    let c = crate::bbox::key_summary(&k, ctx.bbox).counts;
-    let key_count_all = c.nodes + c.ways + c.relations;
-
-    let mut rows: Vec<ValueRow> = k
+    let mut raw_rows: Vec<(String, u64)> = k
         .values()
         .map(|v| {
-            let vc = crate::bbox::value_counts(&v, ctx.bbox);
+            let vc = crate::bbox::value_counts(&v, ctx.bbox_clip.as_ref());
             let count = vc.nodes + vc.ways + vc.relations;
-            ValueRow {
-                value: util::lossy(v.value()),
-                count,
-                fraction: fraction(count, key_count_all),
-                in_wiki: None,
-                description: None,
-                desclang: None,
-                descdir: None,
-            }
+            (util::lossy(v.value()), count)
+        })
+        .collect();
+
+    // taginfo's value `fraction` is over the *key's* total objects (bbox-clipped
+    // when `--bbox` is given). Sum the per-value counts we already computed
+    // instead of making a second bbox pass through the key's values.
+    let key_count_all: u64 = raw_rows.iter().map(|(_, count)| *count).sum();
+
+    let mut rows: Vec<ValueRow> = raw_rows
+        .drain(..)
+        .map(|(value, count)| ValueRow {
+            value,
+            count,
+            fraction: fraction(count, key_count_all),
+            in_wiki: None,
+            description: None,
+            desclang: None,
+            descdir: None,
         })
         .collect();
 

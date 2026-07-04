@@ -23,7 +23,7 @@ pub(crate) fn rows(ctx: &Ctx, key: &str, value: &str) -> Result<Vec<TagStatRow>>
         return Ok(Vec::new());
     };
 
-    let c = crate::bbox::value_counts(&v, ctx.bbox);
+    let c = crate::bbox::value_counts(&v, ctx.bbox_clip.as_ref());
     let count_all = c.nodes + c.ways + c.relations;
 
     let rows = vec![

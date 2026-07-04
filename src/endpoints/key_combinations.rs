@@ -64,13 +64,14 @@ pub(crate) fn rows(
                 })
                 .collect()
         }
-        Some(bbox) => {
-            let this_idx = crate::bbox::key_indices_in_bbox(&k, bbox);
+        Some(_) => {
+            let clip = ctx.bbox_clip.as_ref().expect("bbox clip exists");
+            let this_idx = crate::bbox::key_indices_in_bbox(&k, clip);
             let from_total = this_idx.total();
             k.combinations()
                 .filter_map(|c| {
                     let other = tq.key(c.key())?;
-                    let other_idx = crate::bbox::key_indices_in_bbox(&other, bbox);
+                    let other_idx = crate::bbox::key_indices_in_bbox(&other, clip);
                     let together = crate::bbox::key_together_count_in_bbox(&this_idx, &other_idx);
                     (together > 0).then(|| ComboRow {
                         other_key: util::lossy(c.key()),

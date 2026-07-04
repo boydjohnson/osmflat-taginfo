@@ -66,15 +66,16 @@ pub(crate) fn rows(
                 })
                 .collect()
         }
-        Some(bbox) => {
-            let from_c = crate::bbox::value_counts(&v, Some(bbox));
-            let from_total = from_c.nodes + from_c.ways + from_c.relations;
+        Some(_) => {
+            let clip = ctx.bbox_clip.as_ref().expect("bbox clip exists");
+            let from_idx = crate::bbox::value_indices_in_bbox(&v, clip);
+            let from_total = from_idx.total();
             v.combinations()
                 .filter_map(|c| {
                     let other = tq.kv(c.key(), c.value())?;
-                    let together = crate::bbox::tag_together_count_in_bbox(&v, &other, bbox);
-                    let oc = crate::bbox::value_counts(&other, Some(bbox));
-                    let to_total = oc.nodes + oc.ways + oc.relations;
+                    let other_idx = crate::bbox::value_indices_in_bbox(&other, clip);
+                    let together = crate::bbox::tag_together_count_in_bbox(&from_idx, &other_idx);
+                    let to_total = other_idx.total();
                     (together > 0).then(|| TagComboRow {
                         other_key: util::lossy(c.key()),
                         other_value: util::lossy(c.value()),

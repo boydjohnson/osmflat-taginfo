@@ -35,7 +35,7 @@ pub(crate) fn rows(ctx: &Ctx, key: &str) -> Result<Vec<StatRow>> {
     let mut v_all = 0u64;
     let mut c = osmflat_ext::taginfo::TypeCounts::default();
     for v in k.values() {
-        let vc = crate::bbox::value_counts(&v, ctx.bbox);
+        let vc = crate::bbox::value_counts(&v, ctx.bbox_clip.as_ref());
         c.nodes += vc.nodes;
         c.ways += vc.ways;
         c.relations += vc.relations;
