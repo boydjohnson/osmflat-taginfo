@@ -29,7 +29,7 @@ use osmflat_extc::BuildOptions;
 //   highway  ways=3               all=3  values={primary:2, residential:1} distinct=2
 //   type     rels=1               all=1  values={route:1}              distinct=1
 
-fn n(lon: f64, lat: f64, tags: &[(&'static str, &'static str)]) -> NodeSpec {
+pub(crate) fn n(lon: f64, lat: f64, tags: &[(&'static str, &'static str)]) -> NodeSpec {
     NodeSpec {
         lon,
         lat,
@@ -37,14 +37,14 @@ fn n(lon: f64, lat: f64, tags: &[(&'static str, &'static str)]) -> NodeSpec {
     }
 }
 
-fn w(refs: Vec<usize>, tags: &[(&'static str, &'static str)]) -> WaySpec {
+pub(crate) fn w(refs: Vec<usize>, tags: &[(&'static str, &'static str)]) -> WaySpec {
     WaySpec {
         refs,
         tags: tags.iter().map(|(k, v)| TagSpec::new(k, v)).collect(),
     }
 }
 
-fn fixture() -> Fixture {
+pub(crate) fn fixture() -> Fixture {
     Fixture {
         nodes: vec![
             n(0.0, 0.0, &[("amenity", "cafe"), ("name", "A")]),

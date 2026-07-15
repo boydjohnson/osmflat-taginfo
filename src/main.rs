@@ -12,8 +12,14 @@ mod freshness;
 mod model;
 mod open;
 mod output;
+#[cfg(feature = "serve")]
+mod routes;
+#[cfg(feature = "serve")]
+mod serve;
 mod util;
 
+#[cfg(all(test, feature = "serve"))]
+mod serve_tests;
 #[cfg(test)]
 mod tests;
 
@@ -23,6 +29,12 @@ use open::Ctx;
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    #[cfg(feature = "serve")]
+    if let Command::Serve(args) = &cli.command {
+        return run_serve(&cli, args);
+    }
+
     let bbox = cli::parse_bbox(&cli)?;
     let ctx = Ctx::open(&cli.archive, &cli.ext, bbox)?;
 
@@ -43,5 +55,25 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        // Handled by the early return above, before `ctx` is even built.
+        #[cfg(feature = "serve")]
+        Command::Serve(_) => unreachable!(),
     }
+}
+
+#[cfg(feature = "serve")]
+fn run_serve(cli: &Cli, args: &cli::ServeArgs) -> anyhow::Result<()> {
+    let archive = cli
+        .archive
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("missing --archive (parent osmflat archive directory)"))?;
+    let ext = cli
+        .ext
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("missing --ext (Ext sidecar directory)"))?;
+    let opened = open::OpenedArchive::open(archive, ext)?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(serve::run(opened, &args.bind_addr))
 }

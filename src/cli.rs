@@ -21,11 +21,11 @@ use std::path::PathBuf;
 )]
 pub struct Cli {
     /// Parent osmflat archive directory.
-    #[arg(short = 'a', long, global = true)]
+    #[arg(short = 'a', long, global = true, env = "TAGINFO_API_ARCHIVE")]
     pub archive: Option<PathBuf>,
 
     /// Sibling Ext sidecar directory (built with `osmflat-extc --taginfo`).
-    #[arg(short = 'x', long, global = true)]
+    #[arg(short = 'x', long, global = true, env = "TAGINFO_API_EXT")]
     pub ext: Option<PathBuf>,
 
     /// Restrict all counts to entities overlapping this box (lon/lat degrees):
@@ -69,6 +69,19 @@ pub enum Command {
     Key(KeyArgs),
     /// Inspect a single `key=value` tag.
     Tag(TagArgs),
+    /// Serve the same six endpoints as an HTTP API (taginfo `/api/4/...`
+    /// routes), with `--bbox` becoming a per-request query parameter instead
+    /// of a startup flag.
+    #[cfg(feature = "serve")]
+    Serve(ServeArgs),
+}
+
+#[cfg(feature = "serve")]
+#[derive(clap::Args, Debug)]
+pub struct ServeArgs {
+    /// Address to listen on.
+    #[arg(long, default_value = "127.0.0.1:8080", env = "TAGINFO_API_BIND_ADDR")]
+    pub bind_addr: String,
 }
 
 #[derive(clap::Args, Debug)]
@@ -128,10 +141,29 @@ pub enum Format {
     Table,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Order {
     Asc,
     Desc,
+}
+
+/// Validate four raw floats and build a [`Bbox`]. Shared by the CLI's
+/// `--bbox` (space-separated argv) and, in `serve` mode, an HTTP query
+/// string's comma-separated `?bbox=` parser.
+pub fn bbox_from_parts(min_lon: f64, min_lat: f64, max_lon: f64, max_lat: f64) -> Result<Bbox> {
+    if min_lon > max_lon || min_lat > max_lat {
+        bail!(
+            "invalid bbox {min_lon} {min_lat} {max_lon} {max_lat}: \
+             MINX must be <= MAXX and MINY must be <= MAXY"
+        );
+    }
+    Ok(Bbox {
+        min_lon,
+        min_lat,
+        max_lon,
+        max_lat,
+    })
 }
 
 /// Validate and convert `--bbox`'s four raw floats into a [`Bbox`].
@@ -140,17 +172,5 @@ pub fn parse_bbox(cli: &Cli) -> Result<Option<Bbox>> {
     let Some(v) = &cli.bbox else {
         return Ok(None);
     };
-    let (min_lon, min_lat, max_lon, max_lat) = (v[0], v[1], v[2], v[3]);
-    if min_lon > max_lon || min_lat > max_lat {
-        bail!(
-            "invalid --bbox {min_lon} {min_lat} {max_lon} {max_lat}: \
-             MINX must be <= MAXX and MINY must be <= MAXY"
-        );
-    }
-    Ok(Some(Bbox {
-        min_lon,
-        min_lat,
-        max_lon,
-        max_lat,
-    }))
+    bbox_from_parts(v[0], v[1], v[2], v[3]).map(Some)
 }

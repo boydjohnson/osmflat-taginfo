@@ -19,24 +19,38 @@ pub(crate) fn paginate<T>(rows: Vec<T>, page: usize, rp: usize) -> Vec<T> {
     rows.into_iter().skip(start).take(rp).collect()
 }
 
-/// Build the envelope, paginate, and print. `url` is the canonical invocation
-/// string for this request; `data_until` comes from the opened archive.
-pub fn emit<T: Serialize>(cli: &Cli, data_until: &str, url: String, rows: Vec<T>) -> Result<()> {
+/// Paginate and wrap (or not) in the taginfo envelope. Pure -- no I/O, no
+/// printing -- so both the CLI's [`emit`] and the `serve`-mode HTTP handlers
+/// can share one implementation of the envelope shaping.
+pub fn envelope<T: Serialize>(
+    url: String,
+    data_until: &str,
+    page: usize,
+    rp: usize,
+    no_envelope: bool,
+    rows: Vec<T>,
+) -> serde_json::Result<Value> {
     let total = rows.len();
-    let data = paginate(rows, cli.page, cli.rp);
+    let data = paginate(rows, page, rp);
 
-    let json = if cli.no_envelope {
-        serde_json::to_value(&data)?
+    if no_envelope {
+        serde_json::to_value(&data)
     } else {
         serde_json::to_value(Envelope {
             url,
             data_until: data_until.to_string(),
-            page: cli.page,
-            rp: cli.rp,
+            page,
+            rp,
             total,
             data,
-        })?
-    };
+        })
+    }
+}
+
+/// Build the envelope, paginate, and print. `url` is the canonical invocation
+/// string for this request; `data_until` comes from the opened archive.
+pub fn emit<T: Serialize>(cli: &Cli, data_until: &str, url: String, rows: Vec<T>) -> Result<()> {
+    let json = envelope(url, data_until, cli.page, cli.rp, cli.no_envelope, rows)?;
 
     match cli.format {
         Format::Json => println!("{}", serde_json::to_string(&json)?),
