@@ -30,7 +30,14 @@ pub struct Cli {
 
     /// Restrict all counts to entities overlapping this box (lon/lat degrees):
     /// `MINX MINY MAXX MAXY`.
-    #[arg(long, global = true, num_args = 4, value_names = ["MINX", "MINY", "MAXX", "MAXY"])]
+    ///
+    /// `allow_hyphen_values` is required here even with the command-level
+    /// `allow_negative_numbers = true` above: that heuristic doesn't reliably
+    /// cover a `global = true` multi-value (`num_args = 4`) arg once it's
+    /// merged into a subcommand's own arg list, so e.g. `-93.33` (any
+    /// Americas longitude) was parsed as an unrecognized short flag instead
+    /// of a value.
+    #[arg(long, global = true, num_args = 4, allow_hyphen_values = true, value_names = ["MINX", "MINY", "MAXX", "MAXY"])]
     pub bbox: Option<Vec<f64>>,
 
     /// Output format.
