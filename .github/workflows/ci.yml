@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+# A second push to a PR makes the in-flight run obsolete; don't pay to finish it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      # Needs no dependency resolution, so style problems surface in seconds
+      # instead of behind a full git-dependency fetch and build.
+      - run: cargo fmt --all --check
+
+  test:
+    name: check & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # Cargo.lock is gitignored, so each run resolves fresh; the cache is what
+      # keeps that from meaning a full rebuild of axum/tokio every time.
+      - uses: Swatinem/rust-cache@v2
+
+      # Both feature sets are built. `serve` is additive (axum + the tokio
+      # runtime), so a default-only build can break without anyone noticing if
+      # CI only ever exercises the full set -- that is exactly how the dead
+      # `has_taginfo` in a non-serve build went unspotted.
+      #
+      # `-D warnings` is passed after `--` rather than through RUSTFLAGS so it
+      # applies to this crate alone; as an env var it also governs every
+      # dependency, and a warning in an upstream crate would fail CI here for
+      # something this repo can't fix.
+      - name: Clippy (default features)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Clippy (serve)
+        run: cargo clippy --all-targets --features serve -- -D warnings
+
+      # Covers the unit tests plus the serve-mode router tests, which are
+      # gated behind the feature and would otherwise be silently skipped.
+      - name: Test (serve)
+        run: cargo test --features serve
+
+      - name: Test (default features)
+        run: cargo test
