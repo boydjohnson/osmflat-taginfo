@@ -35,8 +35,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      # Cargo.lock is gitignored, so each run resolves fresh; the cache is what
-      # keeps that from meaning a full rebuild of axum/tokio every time.
+      # Keeps axum/tokio out of every run's critical path.
       - uses: Swatinem/rust-cache@v2
 
       # Both feature sets are built. `serve` is additive (axum + the tokio
@@ -48,16 +47,18 @@ jobs:
       # applies to this crate alone; as an env var it also governs every
       # dependency, and a warning in an upstream crate would fail CI here for
       # something this repo can't fix.
+      # --locked throughout: the lock is committed, so CI should build the graph
+      # it records and fail on a stale lock rather than resolving past it.
       - name: Clippy (default features)
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Clippy (serve)
-        run: cargo clippy --all-targets --features serve -- -D warnings
+        run: cargo clippy --locked --all-targets --features serve -- -D warnings
 
       # Covers the unit tests plus the serve-mode router tests, which are
       # gated behind the feature and would otherwise be silently skipped.
       - name: Test (serve)
-        run: cargo test --features serve
+        run: cargo test --locked --features serve
 
       - name: Test (default features)
-        run: cargo test
+        run: cargo test --locked
