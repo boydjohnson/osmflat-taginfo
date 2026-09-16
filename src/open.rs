@@ -182,7 +182,9 @@ impl Ctx {
     /// Whether the sidecar has a taginfo index at all -- a whole-archive
     /// misconfiguration, not a per-query condition (unlike an unknown key/tag
     /// or a missing `--combinations` index, both of which just yield empty
-    /// results). `serve` mode uses this to return 503 instead of an empty 200.
+    /// results). `serve` mode uses this to return 503 instead of an empty 200,
+    /// and is its only caller -- hence the gate, matching `mod routes`.
+    #[cfg(feature = "serve")]
     pub fn has_taginfo(&self) -> bool {
         self.archive.taginfo().is_some()
     }

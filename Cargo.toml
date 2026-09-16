@@ -11,9 +11,15 @@ path = "src/main.rs"
 
 [dependencies]
 # The taginfo query layer (this CLI is a pure reader/formatter over it).
-osmflat-ext = { git = "https://github.com/boydjohnson/osmflat-ext", branch = "main" }
-# Pinned to the same branch osmflat-ext is designed against, so cargo unifies
-# the two on one `osmflat` version.
+osmflat-ext = { git = "https://github.com/boydjohnson/osmflat-ext", rev = "dd1c1efaa17fd133a14951e31af4154e9ce6279d" }
+# NOT rev-pinned, deliberately. This must resolve to the exact same `osmflat`
+# that osmflat-ext was built against or their types don't unify (the build
+# fails with E0308 between two copies of the same commit). osmflat-ext declares
+# `osmflat` by branch, and cargo treats `?branch=main` and `?rev=<sha>` as
+# distinct sources even at an identical commit -- so matching its branch is the
+# only way to share one copy. A `[patch]` can't fix this: cargo canonicalizes
+# git URLs, so patching this URL with itself is rejected. To pin this too,
+# osmflat-ext must first pin `osmflat` by rev in its own manifest.
 osmflat = { git = "https://github.com/boydjohnson/osmflat-rs", branch = "main" }
 clap = { version = "4.1", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
@@ -35,7 +41,7 @@ serve = ["dep:axum", "dep:tokio", "dep:tower-http"]
 [dev-dependencies]
 # test-support exposes synthetic in-memory parent + sidecar builders, so unit
 # tests run each endpoint against a known fixture (design §9).
-osmflat-extc = { git = "https://github.com/boydjohnson/osmflat-ext", branch = "main", features = ["test-support"] }
+osmflat-extc = { git = "https://github.com/boydjohnson/osmflat-ext", rev = "dd1c1efaa17fd133a14951e31af4154e9ce6279d", features = ["test-support"] }
 # ServiceExt::oneshot, for driving the `serve`-mode router in tests without a
 # real socket.
 tower = { version = "0.5", features = ["util"] }
