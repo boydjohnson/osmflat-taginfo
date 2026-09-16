@@ -45,3 +45,9 @@ osmflat-extc = { git = "https://github.com/boydjohnson/osmflat-ext", rev = "4892
 # ServiceExt::oneshot, for driving the `serve`-mode router in tests without a
 # real socket.
 tower = { version = "0.5", features = ["util"] }
+
+# What `release.yml` ships. Debug symbols are dead weight in a download, and
+# nothing here needs them at runtime.
+[profile.dist]
+inherits = "release"
+strip = "symbols"
