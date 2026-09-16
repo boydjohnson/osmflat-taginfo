@@ -11,10 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 # The taginfo query layer (this CLI is a pure reader/formatter over it).
-osmflat-ext = { path = "../osmflat-ext/osmflat-ext" }
+osmflat-ext = { git = "https://github.com/boydjohnson/osmflat-ext", branch = "main" }
 # Pinned to the same branch osmflat-ext is designed against, so cargo unifies
 # the two on one `osmflat` version.
-osmflat = { git = "https://github.com/boydjohnson/osmflat-rs", branch = "feature/spatial-index" }
+osmflat = { git = "https://github.com/boydjohnson/osmflat-rs", branch = "main" }
 clap = { version = "4.1", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 # preserve_order keeps struct field order through serde_json::Value, so output
@@ -35,7 +35,7 @@ serve = ["dep:axum", "dep:tokio", "dep:tower-http"]
 [dev-dependencies]
 # test-support exposes synthetic in-memory parent + sidecar builders, so unit
 # tests run each endpoint against a known fixture (design §9).
-osmflat-extc = { path = "../osmflat-ext/osmflat-extc", features = ["test-support"] }
+osmflat-extc = { git = "https://github.com/boydjohnson/osmflat-ext", branch = "main", features = ["test-support"] }
 # ServiceExt::oneshot, for driving the `serve`-mode router in tests without a
 # real socket.
 tower = { version = "0.5", features = ["util"] }

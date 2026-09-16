@@ -90,4 +90,4 @@ the value-count invariant, and JSON round-trip.
 
 [taginfo.openstreetmap.org]: https://taginfo.openstreetmap.org
 [osmflat]: https://docs.rs/osmflat
-[`osmflat-ext`]: ../osmflat-ext
+[`osmflat-ext`]: https://github.com/boydjohnson/osmflat-ext
