@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 # The taginfo query layer (this CLI is a pure reader/formatter over it).
-osmflat-ext = { git = "https://github.com/boydjohnson/osmflat-ext", rev = "19e533dafa33b0bc223cb637c7c84a8fee7d94c2" }
+osmflat-ext = { git = "https://github.com/boydjohnson/osmflat-ext", rev = "48920277cf1e2ffa3d0b05ccfd80d8698ea50f6a" }
 # NOT rev-pinned, deliberately. This must resolve to the exact same `osmflat`
 # that osmflat-ext was built against or their types don't unify (the build
 # fails with E0308 between two copies of the same commit). osmflat-ext declares
@@ -41,7 +41,7 @@ serve = ["dep:axum", "dep:tokio", "dep:tower-http"]
 [dev-dependencies]
 # test-support exposes synthetic in-memory parent + sidecar builders, so unit
 # tests run each endpoint against a known fixture (design §9).
-osmflat-extc = { git = "https://github.com/boydjohnson/osmflat-ext", rev = "19e533dafa33b0bc223cb637c7c84a8fee7d94c2", features = ["test-support"] }
+osmflat-extc = { git = "https://github.com/boydjohnson/osmflat-ext", rev = "48920277cf1e2ffa3d0b05ccfd80d8698ea50f6a", features = ["test-support"] }
 # ServiceExt::oneshot, for driving the `serve`-mode router in tests without a
 # real socket.
 tower = { version = "0.5", features = ["util"] }
