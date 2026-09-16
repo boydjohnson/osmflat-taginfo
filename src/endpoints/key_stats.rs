@@ -27,25 +27,38 @@ pub(crate) fn rows(ctx: &Ctx, key: &str) -> Result<Vec<StatRow>> {
         return Ok(Vec::new());
     };
 
-    // Per-type counts and distinct-value tallies, both derived from the same
-    // per-value pass so they agree under a `--bbox` clip. A value contributes
-    // to a type's distinct-value tally when it has at least one occurrence
-    // (posting, or bbox∩posting) of that type.
-    let (mut v_nodes, mut v_ways, mut v_rels) = (0u64, 0u64, 0u64);
-    let mut v_all = 0u64;
-    let mut c = osmflat_ext::taginfo::TypeCounts::default();
-    for v in k.values() {
-        let vc = crate::bbox::value_counts(&v, ctx.bbox_clip.as_ref());
-        c.nodes += vc.nodes;
-        c.ways += vc.ways;
-        c.relations += vc.relations;
-        if vc.nodes + vc.ways + vc.relations > 0 {
-            v_all += 1;
+    // Per-type counts and distinct-value tallies. A value contributes to a
+    // type's tally when it has at least one occurrence (posting, or
+    // bbox∩posting) of that type.
+    //
+    // Under a clip these come from the key-level postings plus a single
+    // existence pass, not a per-value count: `value_counts` per value costs
+    // `O(values · ranges)`, which put `key addr:street stats --bbox` (810k
+    // values, ~30k ranges) at ~130s.
+    let (c, t) = match ctx.bbox_clip.as_ref() {
+        Some(clip) => (
+            k.counts_within(&clip.node_ranges, &clip.way_ranges, &clip.relation_ranges),
+            k.value_tallies_within(&clip.node_ranges, &clip.way_ranges, &clip.relation_ranges),
+        ),
+        // Archive-wide there is nothing to clip, so the per-type tallies are
+        // just which postings lists are non-empty -- O(1) per value.
+        None => {
+            let mut t = osmflat_ext::taginfo::ValueTallies::default();
+            for v in k.values() {
+                let (n, w, r) = (
+                    !v.nodes().is_empty(),
+                    !v.ways().is_empty(),
+                    !v.relations().is_empty(),
+                );
+                t.nodes += n as u64;
+                t.ways += w as u64;
+                t.relations += r as u64;
+                t.any += (n || w || r) as u64;
+            }
+            (k.counts(), t)
         }
-        v_nodes += (vc.nodes > 0) as u64;
-        v_ways += (vc.ways > 0) as u64;
-        v_rels += (vc.relations > 0) as u64;
-    }
+    };
+    let (v_nodes, v_ways, v_rels, v_all) = (t.nodes, t.ways, t.relations, t.any);
     let count_all = c.nodes + c.ways + c.relations;
     debug_assert!(ctx.bbox.is_some() || v_all == k.distinct_values());
 

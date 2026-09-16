@@ -1,12 +1,13 @@
 //! Per-value/per-key object counts, optionally clipped to a `--bbox`.
 //!
 //! Archive-wide counts are `O(1)` (stored aggregates); a bbox clip has no
-//! stored aggregate, so it's derived by summing the per-value bbox∩postings
-//! merge-join. The expensive spatial candidate ranges are cached once in
-//! [`BboxClip`] and reused for every value.
+//! stored aggregate, so it's derived from a bbox∩postings clip. The expensive
+//! spatial candidate ranges are cached once in [`BboxClip`] and reused, both
+//! across values and across keys — resolving the bbox per key is what makes a
+//! whole-archive sweep intractable.
 
 use osmflat::Osm;
-use osmflat_ext::query::{self, Bbox};
+use osmflat_ext::query::{self, Bbox, EntityType};
 use osmflat_ext::taginfo::{KeyView, TypeCounts, ValueView};
 use std::ops::Range;
 
@@ -46,10 +47,15 @@ impl BboxClip {
 pub fn value_counts(v: &ValueView, clip: Option<&BboxClip>) -> TypeCounts {
     match clip {
         None => v.counts(),
+        // `clip_postings`, not `intersect_bbox`: the latter visits every range
+        // with two binary searches, so it costs `O(ranges · log postings)` even
+        // for a value that misses the box entirely. Across 810k values and the
+        // ~30k ranges of a Manhattan-sized box, that product was the whole
+        // runtime of `key addr:street values --bbox` (~129s).
         Some(clip) => TypeCounts {
-            nodes: query::intersect_bbox(v.nodes(), &clip.node_ranges).count() as u64,
-            ways: query::intersect_bbox(v.ways(), &clip.way_ranges).count() as u64,
-            relations: query::intersect_bbox(v.relations(), &clip.relation_ranges).count() as u64,
+            nodes: query::clip_postings(v.nodes(), &clip.node_ranges).count() as u64,
+            ways: query::clip_postings(v.ways(), &clip.way_ranges).count() as u64,
+            relations: query::clip_postings(v.relations(), &clip.relation_ranges).count() as u64,
         },
     }
 }
@@ -65,30 +71,28 @@ pub struct KeySummary {
 }
 
 /// Archive-wide, this is the key's `O(1)` stored aggregate. A bbox clip has no
-/// stored aggregate, so it sums each value's bbox-filtered counts — `O(values)`.
+/// stored aggregate, so counts come from clipping the key's own `key=*`
+/// postings — `O(1)` clips, not one per value.
 pub fn key_summary(k: &KeyView, clip: Option<&BboxClip>) -> KeySummary {
     match clip {
         None => KeySummary {
             counts: k.counts(),
             distinct_values: k.distinct_values(),
         },
-        Some(clip) => {
-            let mut counts = TypeCounts::default();
-            let mut distinct_values = 0u64;
-            for v in k.values() {
-                let vc = value_counts(&v, Some(clip));
-                if vc.nodes + vc.ways + vc.relations > 0 {
-                    distinct_values += 1;
-                }
-                counts.nodes += vc.nodes;
-                counts.ways += vc.ways;
-                counts.relations += vc.relations;
-            }
-            KeySummary {
-                counts,
-                distinct_values,
-            }
-        }
+        // One clip per entity type against the key's own `key=*` postings,
+        // rather than one per value. Summing per value made this O(values),
+        // which on high-cardinality keys dominated everything: `addr:street`
+        // (810k values) alone took ~128s for a Manhattan-sized box, so the
+        // 25,078-key `keys` sweep never finished in any reasonable time.
+        Some(clip) => KeySummary {
+            counts: k.counts_within(&clip.node_ranges, &clip.way_ranges, &clip.relation_ranges),
+            // Still O(values) -- which value an object carries can't be read
+            // back off the `key=*` postings -- but each value only proves
+            // existence rather than counting every match.
+            distinct_values: k
+                .value_tallies_within(&clip.node_ranges, &clip.way_ranges, &clip.relation_ranges)
+                .any,
+        },
     }
 }
 
@@ -108,9 +112,9 @@ impl ValueBboxIndices {
 /// Materialize the bbox-clipped postings for one `(key,value)`.
 pub fn value_indices_in_bbox(v: &ValueView, clip: &BboxClip) -> ValueBboxIndices {
     ValueBboxIndices {
-        nodes: query::intersect_bbox(v.nodes(), &clip.node_ranges).collect(),
-        ways: query::intersect_bbox(v.ways(), &clip.way_ranges).collect(),
-        relations: query::intersect_bbox(v.relations(), &clip.relation_ranges).collect(),
+        nodes: query::clip_postings(v.nodes(), &clip.node_ranges).collect(),
+        ways: query::clip_postings(v.ways(), &clip.way_ranges).collect(),
+        relations: query::clip_postings(v.relations(), &clip.relation_ranges).collect(),
     }
 }
 
@@ -162,19 +166,15 @@ impl KeyBboxIndices {
 /// `O(values)` cached-range intersections — the same per-value cost as
 /// [`key_summary`].
 pub fn key_indices_in_bbox(k: &KeyView, clip: &BboxClip) -> KeyBboxIndices {
-    let (mut nodes, mut ways, mut relations) = (Vec::new(), Vec::new(), Vec::new());
-    for v in k.values() {
-        nodes.extend(query::intersect_bbox(v.nodes(), &clip.node_ranges));
-        ways.extend(query::intersect_bbox(v.ways(), &clip.way_ranges));
-        relations.extend(query::intersect_bbox(v.relations(), &clip.relation_ranges));
-    }
-    nodes.sort_unstable();
-    ways.sort_unstable();
-    relations.sort_unstable();
+    // Clipped off the key's own `key=*` postings, so this costs one clip per
+    // entity type rather than one per value. `key combinations --bbox` calls
+    // this once per co-occurring key, and walking the values of keys like
+    // `name` (5.5M) put `key highway combinations --bbox` past 400s. The
+    // results come back ascending and deduplicated, so there is nothing to sort.
     KeyBboxIndices {
-        nodes,
-        ways,
-        relations,
+        nodes: k.postings_within(EntityType::Node, &clip.node_ranges),
+        ways: k.postings_within(EntityType::Way, &clip.way_ranges),
+        relations: k.postings_within(EntityType::Relation, &clip.relation_ranges),
     }
 }
 
