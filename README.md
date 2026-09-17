@@ -65,14 +65,81 @@ per-item field order byte-for-byte (`serde_json` `preserve_order`).
 The `combinations` commands need a sidecar built with `osmflat-extc
 --combinations`; without it they return an empty result (with a stderr hint).
 
+## Performance
+
+Measured on an Apple M1 Pro (10 cores, 16GB), median of 3 warm runs. The
+archives are mmap'd, so a cold first touch measures the page cache rather than
+the query; every figure below is warm.
+
+| extract | objects | distinct keys | `.osm.flat` | `.osmflat.ext` |
+|---|---|---|---|---|
+| Minnesota | ~37M | 3,022 | 713MB | 354MB |
+| United States | ~1,738M | 25,078 | 50GB | 44GB |
+
+Sidecars built with `--taginfo --combinations --key-postings --value-search`.
+`--key-postings` matters: without it every bbox-clipped key count merges that
+key's per-value postings at query time, which is what the `--bbox` column below
+would otherwise be dominated by.
+
+`--bbox` uses a dense city inside each extract -- Minneapolis for Minnesota,
+Manhattan for the US -- so the two columns compare like with like rather than
+one region's city against another's countryside.
+
+| command | Minnesota | United States | rows (US) |
+|---|---|---|---|
+| `keys` | 0.011s | 0.060s | 25,078 |
+| `key <k> stats` | 0.005s | 0.007s | 4 |
+| `key <k> values` | 0.005s | 0.007s | 172 |
+| `key <k> combinations` | 0.006s | 0.022s | 6,451 |
+| `tag <k=v> stats` | 0.005s | 0.007s | 4 |
+| `tag <k=v> combinations` | 0.178s | **9.371s** | 4,207,984 |
+| `keys --bbox` | 0.102s | 0.923s | 2,596 |
+| `key <k> stats --bbox` | 0.059s | 0.079s | 4 |
+| `key <k> values --bbox` | 0.058s | 0.081s | 40 |
+| `key <k> combinations --bbox` | 0.090s | 0.236s | 607 |
+| `tag <k=v> stats --bbox` | 0.056s | 0.078s | 4 |
+| `tag <k=v> combinations --bbox` | 0.152s | 4.358s | 4,540 |
+
+`<k>` is `highway`, `<k=v>` is `highway=residential`.
+
+Everything except `tag ... combinations` stays under a second even on a
+1.7-billion-object archive, because the counts are stored aggregates rather than
+scans.
+
+What the two columns scale with is worth reading off directly. The US archive
+holds ~47x Minnesota's objects, but the single-key lookups (`key stats`,
+`key values`, `tag stats`) are only ~1.4x slower with or without a bbox: they
+touch one key's stored aggregate, so the size of the rest of the archive barely
+registers. The whole-table sweeps track the *key count* instead, not the object
+count -- `keys --bbox` is 9.0x slower against 8.3x as many distinct keys (25,078
+vs 3,022).
+
+### The `tag ... combinations` outlier
+
+It returns every distinct *tag* co-occurring with the queried one -- 4.2M rows
+on the US extract -- so most of that 9.4s is producing and serialising rows, not
+finding them.
+
+Pagination does not avoid the work. The rows are all computed and then sliced,
+so asking for a single page is cheaper only by the serialisation it skips:
+
+| | US |
+|---|---|
+| `--rp 0` (all 4.2M rows) | 7.62s |
+| `--rp 100` (one page) | 4.47s |
+
+If you need a page of this endpoint on a large extract, ~4.5s is the floor as
+things stand.
+
 ## Tests
 
 ```sh
 cargo test
 ```
 
-14 unit tests build a synthetic parent + sidecar in memory (via osmflat-extc's
-`test-support`) and assert every endpoint's rows against a known fixture: counts,
+16 unit tests (27 with `--features serve`) build a synthetic parent + sidecar in
+memory (via osmflat-extc's `test-support`) and assert every endpoint's rows
+against a known fixture: counts,
 fractions, per-type distinct values, the null-stub contract, sort, pagination,
 the value-count invariant, and JSON round-trip.
 
