@@ -3,7 +3,8 @@ name = "osmflat-taginfo"
 version = "0.1.0"
 edition = "2021"
 description = "A taginfo.openstreetmap.org-compatible CLI over osmflat + osmflat-ext sidecars."
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/boydjohnson/osmflat-taginfo"
 
 [[bin]]
 name = "osmflat-taginfo"
