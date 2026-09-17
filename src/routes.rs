@@ -262,19 +262,24 @@ pub async fn tag_combinations(
     let bbox = parse_bbox_query(q.bbox.as_deref())?;
     let ctx = Ctx::for_bbox(&state, bbox);
     require_taginfo(&ctx)?;
-    let rows = endpoints::tag_combinations::rows(
+    let (page, rp) = (q.page.unwrap_or(1), q.rp.unwrap_or(0));
+    let rows = endpoints::tag_combinations::page(
         &ctx,
         &q.key,
         &q.value,
         q.sortname.as_deref(),
         q.sortorder.unwrap_or(Order::Desc),
+        page,
+        rp,
     )?;
-    envelope_response(
-        &uri,
-        &ctx,
-        q.page.unwrap_or(1),
-        q.rp.unwrap_or(0),
+    let value = output::envelope_page(
+        uri.to_string(),
+        &ctx.data_until,
+        page,
+        rp,
         q.no_envelope.unwrap_or(false),
         rows,
     )
+    .map_err(|e| ApiError::Internal(e.into()))?;
+    Ok(Json(value))
 }

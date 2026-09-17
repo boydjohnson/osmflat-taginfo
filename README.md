@@ -120,16 +120,27 @@ It returns every distinct *tag* co-occurring with the queried one -- 4.2M rows
 on the US extract -- so most of that 9.4s is producing and serialising rows, not
 finding them.
 
-Pagination does not avoid the work. The rows are all computed and then sliced,
-so asking for a single page is cheaper only by the serialisation it skips:
+A page is cheaper than the whole table. Without `--bbox`, the requested page is
+chosen from each combination's stored count and key/value strings first, and
+only that page's rows are built -- the per-row `to_fraction` lookup of the other
+tag is what dominates building all of them. Measured on a South America extract
+(644M nodes, 52M ways; `highway=residential` co-occurs with 1.2M tags), same
+machine, median of 3 warm runs:
 
-| | US |
-|---|---|
-| `--rp 0` (all 4.2M rows) | 7.62s |
-| `--rp 100` (one page) | 4.47s |
+| | before | after |
+|---|---|---|
+| `--rp 100` (one page) | 1.80s | 0.39s |
+| `--rp 100 --page 50` | 1.80s | 0.38s |
+| `--rp 100 --sortname other_key` | 1.83s | 0.45s |
+| `--rp 0` (all 1.2M rows) | 2.79s | 2.79s |
+| `--rp 100 --sortname to_fraction` | 2.04s | 2.03s |
+| `--rp 100 --bbox` (São Paulo) | 6.30s | 6.33s |
 
-If you need a page of this endpoint on a large extract, ~4.5s is the floor as
-things stand.
+What remains in a page is reading every combination's key and value strings to
+sort on. Three cases still build every row, because each row's sort key or
+existence is the expensive part: `--sortname to_fraction` (needs the other
+tag's total), `--bbox` (`together_count` is recomputed per row from clipped
+postings, and rows that drop to zero are removed), and `--rp 0`.
 
 ## Tests
 
@@ -137,11 +148,12 @@ things stand.
 cargo test
 ```
 
-16 unit tests (27 with `--features serve`) build a synthetic parent + sidecar in
+18 unit tests (29 with `--features serve`) build a synthetic parent + sidecar in
 memory (via osmflat-extc's `test-support`) and assert every endpoint's rows
 against a known fixture: counts,
-fractions, per-type distinct values, the null-stub contract, sort, pagination,
-the value-count invariant, and JSON round-trip.
+fractions, per-type distinct values, the null-stub contract, sort, pagination
+(including that `tag ... combinations`' page selection matches slicing the full
+sorted table), the value-count invariant, and JSON round-trip.
 
 ## Caveats
 
