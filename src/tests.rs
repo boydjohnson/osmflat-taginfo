@@ -377,3 +377,180 @@ fn rows_round_trip_through_json() {
     let first = &back[0];
     assert!(first.get("in_wiki").unwrap().is_null());
 }
+
+/// A fixture where `highway=primary` co-occurs with enough tags, in enough
+/// count ties, to exercise paging: 11 other tags over 4 ways, counts 1–4.
+fn paging_ctx() -> Ctx {
+    const WAYS: [&[(&str, &str)]; 4] = [
+        &[
+            ("highway", "primary"),
+            ("name", "Main"),
+            ("surface", "asphalt"),
+            ("lanes", "2"),
+            ("oneway", "yes"),
+            ("ref", "A1"),
+        ],
+        &[
+            ("highway", "primary"),
+            ("name", "High"),
+            ("surface", "asphalt"),
+            ("lanes", "2"),
+            ("oneway", "no"),
+            ("maxspeed", "50"),
+        ],
+        &[
+            ("highway", "primary"),
+            ("name", "Main"),
+            ("surface", "asphalt"),
+            ("lanes", "4"),
+            ("oneway", "yes"),
+            ("bridge", "yes"),
+        ],
+        &[
+            ("highway", "primary"),
+            ("name", "Low"),
+            ("surface", "asphalt"),
+            ("lanes", "2"),
+            ("oneway", "yes"),
+            ("maxspeed", "50"),
+        ],
+    ];
+    let fixture = Fixture {
+        nodes: vec![n(0.0, 0.0, &[]), n(1.0, 1.0, &[])],
+        ways: WAYS.iter().map(|tags| w(vec![0, 1], tags)).collect(),
+        relations: vec![],
+    };
+    let parent = build_parent_archive(&fixture).expect("build parent");
+    let opts = BuildOptions {
+        taginfo: true,
+        combinations: true,
+        ..Default::default()
+    };
+    let archive = build_ext_archive(parent, &opts).expect("build sidecar");
+    Ctx::from_archive(archive, "1970-01-01T00:00:00Z".to_string())
+}
+
+/// The paged path picks exactly the rows paging the full sorted table would,
+/// with the same total, for every sort field, order, page size and page --
+/// including ties on the sort field and pages past the end.
+#[test]
+fn tag_combinations_page_matches_paged_rows() {
+    let ctx = paging_ctx();
+    assert_page_matches_paged_rows(&ctx, 11);
+
+    let missing =
+        tag_combinations::page(&ctx, "highway", "nope", None, Order::Desc, 1, 10).unwrap();
+    assert_eq!((missing.total, missing.rows.len()), (0, 0));
+    assert!(tag_combinations::page(
+        &ctx,
+        "highway",
+        "primary",
+        Some("bogus"),
+        Order::Desc,
+        1,
+        10
+    )
+    .is_err());
+}
+
+/// `from_fraction` is rounded to 4 places, so on a tag carried by enough
+/// objects, different `together_count`s round to the same fraction and sort
+/// by key/value instead. The paged path must order by the rounded value too.
+#[test]
+fn tag_combinations_page_matches_on_rounded_fraction_ties() {
+    const N: usize = 20_000;
+    let ways = (0..N)
+        .map(|i| {
+            let mut tags = vec![("highway", "primary")];
+            // Counts N-2 and N-3 both round to 0.9999 over N, and N-4 to
+            // 0.9998. The higher count gets the earlier key, so ordering the
+            // tie by count and by key disagree.
+            if i > 1 {
+                tags.push(("alpha", "b"));
+            }
+            if i > 2 {
+                tags.push(("zeta", "a"));
+            }
+            if i > 3 {
+                tags.push(("mid", "c"));
+            }
+            if i % 2 == 0 {
+                tags.push(("even", "yes"));
+            }
+            w(vec![0, 1], &tags)
+        })
+        .collect();
+    let fixture = Fixture {
+        nodes: vec![n(0.0, 0.0, &[]), n(1.0, 1.0, &[])],
+        ways,
+        relations: vec![],
+    };
+    let parent = build_parent_archive(&fixture).expect("build parent");
+    let opts = BuildOptions {
+        taginfo: true,
+        combinations: true,
+        ..Default::default()
+    };
+    let archive = build_ext_archive(parent, &opts).expect("build sidecar");
+    let ctx = Ctx::from_archive(archive, "1970-01-01T00:00:00Z".to_string());
+
+    // The fixture really does tie: two different counts share a fraction.
+    let rows = tag_combinations::rows(&ctx, "highway", "primary", None, Order::Desc).unwrap();
+    let zeta = rows.iter().find(|r| r.other_key == "zeta").unwrap();
+    let alpha = rows.iter().find(|r| r.other_key == "alpha").unwrap();
+    assert_ne!(zeta.together_count, alpha.together_count);
+    assert_eq!(zeta.from_fraction, alpha.from_fraction);
+
+    assert_page_matches_paged_rows(&ctx, 4);
+}
+
+/// Compare [`tag_combinations::page`] against paging
+/// [`tag_combinations::rows`] for `highway=primary` across every sort field,
+/// order, page size and page.
+fn assert_page_matches_paged_rows(ctx: &Ctx, expected_len: usize) {
+    let fields = [
+        None,
+        Some("together_count"),
+        Some("from_fraction"),
+        Some("to_fraction"),
+        Some("other_key"),
+        Some("other_value"),
+    ];
+    let as_tuples = |rows: &[crate::model::TagComboRow]| {
+        rows.iter()
+            .map(|r| {
+                (
+                    r.other_key.clone(),
+                    r.other_value.clone(),
+                    r.together_count,
+                    r.to_fraction,
+                    r.from_fraction,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    for sortname in fields {
+        for sortorder in [Order::Asc, Order::Desc] {
+            let full =
+                tag_combinations::rows(ctx, "highway", "primary", sortname, sortorder).unwrap();
+            assert_eq!(full.len(), expected_len);
+            for rp in [0, 1, 2, 3, 5, expected_len, expected_len + 9] {
+                for page in 1..=expected_len + 1 {
+                    let expected = crate::output::paginate(
+                        tag_combinations::rows(ctx, "highway", "primary", sortname, sortorder)
+                            .unwrap(),
+                        page,
+                        rp,
+                    );
+                    let got = tag_combinations::page(
+                        ctx, "highway", "primary", sortname, sortorder, page, rp,
+                    )
+                    .unwrap();
+                    let case = format!("{sortname:?} {sortorder:?} rp={rp} page={page}");
+                    assert_eq!(got.total, full.len(), "{case}");
+                    assert_eq!(as_tuples(&got.rows), as_tuples(&expected), "{case}");
+                }
+            }
+        }
+    }
+}
