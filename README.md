@@ -190,6 +190,22 @@ BSD-3-Clause and Unicode-3.0 components, so redistributing a built binary means
 carrying those attributions even if you take the MIT option for this crate's own
 source. No dependency in the tree is copyleft.
 
+Every release archive therefore ships a `THIRD-PARTY-NOTICES.md` next to the
+binary, listing every linked crate and its license text. It is generated
+per target from the locked graph by `scripts/third-party-notices.py`, not
+committed -- a checked-in copy would drift from `Cargo.lock` silently. To
+produce one locally, build first (the script reads the texts out of the
+registry sources) and then:
+
+```sh
+cargo build --locked --features serve
+scripts/third-party-notices.py --target "$(rustc -vV | sed -n 's/^host: //p')" \
+    --features serve -o THIRD-PARTY-NOTICES.md
+```
+
+One crate, `flatdata`, declares Apache-2.0 but bundles no copy of it; the
+`LICENSE-APACHE` in the same archive is that copy.
+
 ### The data
 
 OpenStreetMap data is © OpenStreetMap contributors and licensed under the [Open

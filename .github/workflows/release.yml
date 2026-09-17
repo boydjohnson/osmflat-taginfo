@@ -81,9 +81,16 @@ jobs:
           name="osmflat-taginfo-${version}-${{ matrix.target }}"
           mkdir -p "dist/$name"
           cp "target/${{ matrix.target }}/dist/osmflat-taginfo" "dist/$name/"
-          # No LICENSE-* in this repo yet, though Cargo.toml declares
-          # MIT/Apache-2.0. Add them here once they exist.
-          cp README.md "dist/$name/"
+          cp README.md LICENSE-MIT LICENSE-APACHE "dist/$name/"
+          # Apache-2.0, BSD-3-Clause and Unicode-3.0 dependencies all require
+          # their notices to travel with a redistributed binary. Generated per
+          # target from the locked graph, so it lists what actually linked --
+          # and it runs after the build, when the registry sources it reads the
+          # license texts out of are already on disk.
+          python3 scripts/third-party-notices.py \
+            --target "${{ matrix.target }}" \
+            --features serve \
+            -o "dist/$name/THIRD-PARTY-NOTICES.md"
           cd dist
           tar czf "$name.tar.gz" "$name"
           echo "asset=$name.tar.gz" >> "$GITHUB_OUTPUT"
