@@ -4,9 +4,11 @@ name: release
 # without publishing, which is the only way to find out that a target broke
 # before a tag is already cut and public.
 #
-# Same two targets osmflat-rs and osmflat-ext ship: this reads archives built
+# Same two platforms osmflat-rs and osmflat-ext ship: this reads archives built
 # by osmflatc and osmflat-extc, so a platform those can't run on is of no use
-# here either.
+# here either. The Linux triple differs from theirs -- they ship glibc, this
+# ships static musl -- which is fine, because the parity that matters is being
+# runnable on the same machines, and musl is runnable on strictly more of them.
 on:
   push:
     tags: ["v*"]
@@ -33,11 +35,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 22.04, not latest: the binary links against the runner's glibc, and
-          # building on 24.04 (glibc 2.39) yields something that won't start on
-          # any older distro. The oldest runner we build on sets the floor.
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-22.04
+          # musl, not gnu: a glibc build links against the runner's glibc and
+          # won't start on any distro older than it, which made the runner
+          # image an ABI decision -- pinning 22.04 only to hold the floor down.
+          # Static musl has no floor, so the runner can float with `latest`.
+          #
+          # Nothing in the tree compiles C (no `cc`, no `*-sys` beyond `libc`
+          # and `linux-raw-sys`), so rustc's bundled musl libc links this on
+          # its own and no `musl-tools` install is needed. A future dependency
+          # with a C component would change that, and would fail here loudly.
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
           - target: aarch64-apple-darwin
             os: macos-14
 
@@ -71,6 +79,14 @@ jobs:
           "$bin" --version
           "$bin" --help > /dev/null
           "$bin" serve --help > /dev/null
+          # The musl build is only worth having if it is actually static --
+          # a dependency that pulls in a C component would quietly produce a
+          # dynamically linked binary that still passes every check above and
+          # then fails on the machines musl was chosen for.
+          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
+            file "$bin"
+            file "$bin" | grep -q "static-pie linked\|statically linked"
+          fi
 
       - name: Package
         id: package
