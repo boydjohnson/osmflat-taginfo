@@ -167,6 +167,65 @@ sorted table), the value-count invariant, and JSON round-trip.
 - The sidecar must match the exact parent build; a mismatch is caught by the
   osmflat-ext fingerprint and refuses to open.
 
+## Licenses
+
+Two separate things are licensed here: this code, and the OpenStreetMap data it
+reads. They are not the same license, and the data one is the one with ongoing
+obligations.
+
+### This code
+
+Dual-licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option. This matches [`osmflat-ext`] and [osmflat] upstream. Unless you
+explicitly state otherwise, any contribution intentionally submitted for
+inclusion in this work shall be dual-licensed as above, without any additional
+terms or conditions.
+
+Note that the *binary* pulls in an Apache-2.0-only dependency (`flatdata`), plus
+BSD-3-Clause and Unicode-3.0 components, so redistributing a built binary means
+carrying those attributions even if you take the MIT option for this crate's own
+source. No dependency in the tree is copyleft.
+
+Every release archive therefore ships a `THIRD-PARTY-NOTICES.md` next to the
+binary, listing every linked crate and its license text. It is generated
+per target from the locked graph by `scripts/third-party-notices.py`, not
+committed -- a checked-in copy would drift from `Cargo.lock` silently. To
+produce one locally, build first (the script reads the texts out of the
+registry sources) and then:
+
+```sh
+cargo build --locked --features serve
+scripts/third-party-notices.py --target "$(rustc -vV | sed -n 's/^host: //p')" \
+    --features serve -o THIRD-PARTY-NOTICES.md
+```
+
+One crate, `flatdata`, declares Apache-2.0 but bundles no copy of it; the
+`LICENSE-APACHE` in the same archive is that copy.
+
+### The data
+
+OpenStreetMap data is © OpenStreetMap contributors and licensed under the [Open
+Database License][odbl] (ODbL). That license follows the data through this tool:
+an osmflat archive is a derived database, the taginfo tables this CLI computes
+are derived from it, and the JSON it prints is produced from that.
+
+So if you publish this tool's output — run the `serve` subcommand publicly,
+ship the JSON, or put the numbers in something you distribute — the ODbL
+attribution and share-alike terms apply to you, not to this tool. At minimum,
+attribute
+"© OpenStreetMap contributors" wherever the output is surfaced. See the
+[OSMF copyright page][osmf] for what attribution has to look like in practice.
+
+This tool emits no attribution string of its own, deliberately: it has no way to
+know how its output will be surfaced.
+
+[odbl]: https://opendatacommons.org/licenses/odbl/1-0/
+[osmf]: https://www.openstreetmap.org/copyright
+
 [taginfo.openstreetmap.org]: https://taginfo.openstreetmap.org
 [osmflat]: https://docs.rs/osmflat
 [`osmflat-ext`]: https://github.com/boydjohnson/osmflat-ext

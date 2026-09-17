@@ -1,2 +1,5 @@
 /target
 
+# Generated per-target at release time by scripts/third-party-notices.py.
+# Never committed: a checked-in copy drifts from Cargo.lock without saying so.
+/THIRD-PARTY-NOTICES.md
